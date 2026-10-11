@@ -29,6 +29,7 @@ A high-performance, multi-tenant analytics, subscriber telemetry, and date-wise 
    - [8. Quizzes & Content Management](#8-quizzes--content-management)
    - [9. User Management & Date-Wise Access Control](#9-user-management--date-wise-access-control)
    - [10. Streaming CSV Export](#10-streaming-csv-export)
+   - [11. Dynamic Platform Management & Multi-Tenant Registry](#11-dynamic-platform-management--multi-tenant-registry)
 9. [Troubleshooting & Common Issues](#-troubleshooting--common-issues)
 10. [Automated Verification Suite](#-automated-verification-suite)
 
@@ -535,6 +536,41 @@ Streams a CSV download isolated to the user's active platform.
   - `Content-Type: text/csv`
   - `Content-Disposition: attachment; filename="subscribers-export.csv"`
 
+### 11. Dynamic Platform Management & Multi-Tenant Registry
+*(Restricted to Super Administrators via `requireSuperAdmin`)*
+
+#### `GET /api/platform-management`
+Lists all registered platforms with connection status, configuration status, and enabled modules.
+- **Headers**: `Authorization: Bearer <token>`
+- **Query Params**: `search=...`, `status=ACTIVE|DRAFT|NEEDS_VALIDATION|DISABLED`, `country=...`
+
+#### `POST /api/platform-management`
+Registers a new platform with connection details, collection roles, field mappings, and offers.
+- **Headers**: `Authorization: Bearer <token>`
+
+#### `POST /api/platform-management/test-connection` or `POST /api/platform-management/:id/test-connection`
+Executes real-time ping and authentication verification against the configured MongoDB instance.
+- **Request Body**: `{ "mongo_uri": "mongodb+srv://...", "database_name": "..." }`
+- **Response**: `{ "success": true, "latencyMs": 142, "collections": [...] }`
+
+#### `POST /api/platform-management/discover-schema` or `POST /api/platform-management/:id/discover-schema`
+Discovers accessible collections, document counts, and automatically suggests canonical field mappings from sample records.
+
+#### `PUT /api/platform-management/:id/mappings`
+Updates collection and canonical field mappings (`msisdn`, `timestamp`, `transaction_id`, `command`, `status`, `subscription_status`, `charge_amount`, `offer_code`, `failure_reason`, `next_billing_date`).
+
+#### `PUT /api/platform-management/:id/offers`
+Configures offer definitions, billing frequencies (daily, ondemand, monthly), and prices.
+
+#### `POST /api/platform-management/:id/validate`
+Runs a read-only dry-run aggregation, verifies field existence, previews sample normalized records, and calculates 24h & 30d KPI metrics.
+
+#### `POST /api/platform-management/:id/activate`
+Activates the platform. It immediately becomes accessible to authorized users and reporting engines without redeployment.
+
+#### `POST /api/platform-management/:id/disable`
+Soft-disables the platform. Preserves all configurations and historical records.
+
 ---
 
 ## 🛠 Troubleshooting & Common Issues
@@ -576,3 +612,9 @@ The enterprise reporting engine enforces strict validation across all access rul
 - **Read-Only Database Proxy**: Live production MongoDB collections are strictly guarded by read-only security proxies that reject mutations.
 - **Role-Based Guards**: Modification and user administration endpoints strictly require Super Admin privileges (`requireSuperAdmin`).
 - **Sanitized Configurations**: All connections and secrets are managed strictly via environment variables.
+
+### Running Automated Test Suite
+To verify strict read-only database enforcement, secret masking, baseline platform migration, historical financial report fidelity, and dynamic platform registration without code changes:
+```bash
+node ./server/test/verify_dynamic_platform_system.js
+```
