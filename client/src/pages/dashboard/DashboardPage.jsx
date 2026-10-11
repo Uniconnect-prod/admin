@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/common/PageHeader';
 import { KpiCard } from '../../components/common/KpiCard';
 import { DateRangePicker } from '../../components/common/DateRangePicker';
@@ -27,6 +28,7 @@ import './DashboardPage.scss';
 
 export const DashboardPage = () => {
   const navigate = useNavigate();
+  const { activePlatform } = useAuth();
   const [range, setRange] = useState('30d');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -60,10 +62,16 @@ export const DashboardPage = () => {
     abortControllerRef.current = controller;
 
     try {
+      const requestHeaders = {};
+      if (activePlatform?.code && activePlatform.code !== 'ALL') {
+        requestHeaders['x-platform-code'] = activePlatform.code;
+      }
+      if (activePlatform?.id && activePlatform.id !== 'ALL') {
+        requestHeaders['x-platform-id'] = activePlatform.id;
+      }
+
       const res = await api.get('/reports/overview', {
-        headers: {
-          'x-platform-code': 'GHSUPERWINNINGS'
-        },
+        headers: requestHeaders,
         params: {
           range,
           from: customFrom,
@@ -82,13 +90,13 @@ export const DashboardPage = () => {
       if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
         return;
       }
-      console.error('Failed to load GHSUPERWINNINGS dashboard data:', err);
+      console.error('Failed to load dashboard data:', err);
       setError('Unable to load dashboard data');
     } finally {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [range, customFrom, customTo]);
+  }, [range, customFrom, customTo, activePlatform]);
 
   useEffect(() => {
     fetchDashboardData(false);
@@ -213,7 +221,7 @@ export const DashboardPage = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `GHSUPERWINNINGS_Daily_Settlement_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `${activePlatform?.code || 'GHSUPERWINNINGS'}_Daily_Settlement_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -221,12 +229,12 @@ export const DashboardPage = () => {
 
   return (
     <div className="dashboard-page ghsuperwinnings-dashboard">
-      {/* Page Header: Visual Identity for GHSUPERWINNINGS */}
+      {/* Page Header: Visual Identity for Active Platform */}
       <PageHeader
-        title="GHSuperWinnings"
+        title={activePlatform?.name || 'GHSuperWinnings'}
         subtitle="Analytics Dashboard"
-        breadcrumbs={['Home', 'GHSUPERWINNINGS', 'Dashboard']}
-        platformBadge="GHSUPERWINNINGS"
+        breadcrumbs={['Home', activePlatform?.code || 'GHSUPERWINNINGS', 'Dashboard']}
+        platformBadge={activePlatform?.code || 'GHSUPERWINNINGS'}
         actions={
           <div className="dashboard-header-actions">
             <DateRangePicker
@@ -244,7 +252,7 @@ export const DashboardPage = () => {
               className="btn btn-secondary btn-sm refresh-btn"
               onClick={() => fetchDashboardData(false)}
               disabled={loading || isRefreshing}
-              title="Refresh live metrics from GHSUPERWINNINGS"
+              title={`Refresh live metrics from ${activePlatform?.name || 'active platform'}`}
             >
               <RefreshCw size={13} className={loading || isRefreshing ? 'animate-spin' : ''} />
               <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
@@ -585,9 +593,9 @@ export const DashboardPage = () => {
               <Sparkles size={18} />
             </div>
             <div>
-              <h3 className="telemetry-title">GHSUPERWINNINGS Telemetry & Service Configuration</h3>
+              <h3 className="telemetry-title">{activePlatform?.name || 'GHSUPERWINNINGS'} Telemetry & Service Configuration</h3>
               <p className="telemetry-subtitle">
-                Operational status, database scoping, and billing offer profiles for GHSUPERWINNINGS.
+                Operational status, database scoping, and billing offer profiles for {activePlatform?.name || 'GHSUPERWINNINGS'}.
               </p>
             </div>
           </div>
@@ -605,7 +613,7 @@ export const DashboardPage = () => {
               <Database size={13} />
               Database Scope
             </span>
-            <strong className="item-value text-mono">ghsuperwinings</strong>
+            <strong className="item-value text-mono">{data?.platform?.name || activePlatform?.name || 'ghsuperwinings'}</strong>
             <span className="item-note">Strict Read-Only Proxy Enforced</span>
           </div>
 

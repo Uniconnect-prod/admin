@@ -35,7 +35,7 @@ export async function requirePlatform(req, res, next) {
     if (requestedPlatform) {
       const aliasCode = requestedPlatform.toUpperCase() === 'GHSUPERWINNINGS' ? 'GHSUPERWININGS' : requestedPlatform;
       platformRecord = await db.get(
-        `SELECT id, name, code, logo_url, description, status, enabled_modules 
+        `SELECT id, name, code, logo_url, description, status, enabled_modules, country, mongo_uri, database_name, collection_sdp, collection_callback 
          FROM platforms WHERE (UPPER(code) = UPPER(?) OR UPPER(code) = UPPER(?) OR id = ?) AND status = 'ACTIVE'`,
         [requestedPlatform, aliasCode, requestedPlatform]
       );
@@ -117,6 +117,9 @@ export async function requirePlatform(req, res, next) {
         code: platformRecord.code,
         name: platformRecord.name,
         logo_url: platformRecord.logo_url,
+        database_name: platformRecord.database_name,
+        collection_sdp: platformRecord.collection_sdp,
+        collection_callback: platformRecord.collection_callback,
         enabled_modules: modules
       };
       req.platformRole = fallbackRow.role_name;
@@ -170,6 +173,9 @@ export async function requirePlatform(req, res, next) {
       code: platformRecord.code,
       name: platformRecord.name,
       logo_url: platformRecord.logo_url,
+      database_name: platformRecord.database_name,
+      collection_sdp: platformRecord.collection_sdp,
+      collection_callback: platformRecord.collection_callback,
       enabled_modules: modules,
       startDate: accessRow.start_date,
       endDate: accessRow.end_date,

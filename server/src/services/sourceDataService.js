@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { getSourceCol } from '../config/mongo.js';
+import { getSourceCol, getReportingDb } from '../config/mongo.js';
 
 // Supported platform definitions matching exact database names
 export const PLATFORMS_META = [
@@ -22,6 +22,64 @@ export function resolvePlatformMeta(platformIdOrCode) {
   if (str === 'GHMUSIC' || str === '3') return PLATFORMS_META.find(p => p.dbName === 'crazymuzik');
 
   return null;
+}
+
+/**
+ * Dynamically resolves platform configuration from admin_platforms in gh_reporting_admin
+ * with fallback to static PLATFORMS_META and default ghsuperwinings.
+ */
+export async function getPlatformConfig(platformIdOrCode) {
+  if (!platformIdOrCode || platformIdOrCode === 'ALL') return null;
+  try {
+    const rDb = getReportingDb();
+    const str = String(platformIdOrCode).trim();
+    const idNum = parseInt(str, 10);
+    const query = {
+      $or: [
+        { code: { $regex: `^${str}$`, $options: 'i' } },
+        { name: { $regex: `^${str}$`, $options: 'i' } }
+      ]
+    };
+    if (!isNaN(idNum)) {
+      query.$or.push({ id: idNum });
+    }
+    const plat = await rDb.collection('admin_platforms').findOne(query);
+    if (plat) {
+      return {
+        id: plat.id,
+        code: plat.code,
+        name: plat.name,
+        dbName: plat.database_name || plat.name || 'ghsuperwinings',
+        sdpColName: plat.collection_sdp || 'sdplog',
+        callbackColName: plat.collection_callback || 'ghanacallbacklogs',
+        mongoUri: plat.mongo_uri || ''
+      };
+    }
+  } catch (err) {
+    // Reporting db lookup fallback
+  }
+
+  // Fallback to static PLATFORMS_META
+  const meta = resolvePlatformMeta(platformIdOrCode);
+  if (meta) {
+    return {
+      id: meta.id,
+      code: meta.code,
+      name: meta.name,
+      dbName: meta.dbName || meta.name,
+      sdpColName: meta.dbName === 'ghanagameium' ? 'sdplogs' : 'sdplog',
+      callbackColName: 'ghanacallbacklogs'
+    };
+  }
+
+  return {
+    id: 1,
+    code: 'GHSUPERWININGS',
+    name: 'ghsuperwinings',
+    dbName: 'ghsuperwinings',
+    sdpColName: 'sdplog',
+    callbackColName: 'ghanacallbacklogs'
+  };
 }
 
 /**
@@ -64,9 +122,14 @@ export function getDateFilter(range = '30d', from, to) {
 
 export const sourceDataService = {
   // ==========================================
-  // 1. OVERVIEW & KPIS (EXCLUSIVELY GHSUPERWINNINGS)
+  // 1. OVERVIEW & KPIS (DYNAMIC PER PLATFORM)
   // ==========================================
-  async getOverview({ range = '30d', from, to } = {}) {
+  async getOverview({ platformCode, range = '30d', from, to } = {}) {
+    const platConfig = await getPlatformConfig(platformCode);
+    const dbName = platConfig?.dbName || 'ghsuperwinings';
+    const sdpColName = platConfig?.sdpColName || 'sdplog';
+    const callbackColName = platConfig?.callbackColName || 'ghanacallbacklogs';
+
     const { startDate, endDate } = getDateFilter(range, from, to);
 
     // Dynamic timezone: Africa/Accra (UTC+0)
@@ -75,8 +138,7 @@ export const sourceDataService = {
     const todayStart = new Date(`${accraDateStr}T00:00:00.000Z`);
     const todayEnd = new Date(`${accraDateStr}T23:59:59.999Z`);
 
-    // Strictly ghsuperwinings database only
-    const ghswSdpCol = getSourceCol('ghsuperwinings', 'sdplog');
+    const sdpCol = getSourceCol(dbName, sdpColName);
 
     let totalSubscribers = 0;
     let activeSubscribers = 0;
@@ -88,7 +150,7 @@ export const sourceDataService = {
       // 1. TODAY'S RENEWALS: Actual renewal callbacks processed today in Africa/Accra timezone
       // Event: command = "NotifyRenewal", successful renewal (status A or normalized renewal)
       // Excludes: CGW redirect records, duplicate callbacks, status=200 redirect records
-      const todayRenewalsCount = await ghswSdpCol.countDocuments({
+      const todayRenewalsCount = await sdpCol.countDocuments({
         createdAt: { $gte: todayStart, $lte: todayEnd },
         command: 'NotifyRenewal',
         $or: [
@@ -98,9 +160,9 @@ export const sourceDataService = {
       });
       todayRenewals = todayRenewalsCount;
 
-      // 2. TOTAL SUBSCRIBERS: Unique non-empty MSISDNs in live GHSUPERWINNINGS database
+      // 2. TOTAL SUBSCRIBERS: Unique non-empty MSISDNs in live database
       // Excludes null/empty/invalid values, groups by MSISDN so multiple callbacks count as 1
-      const totalSubsAgg = await ghswSdpCol.aggregate([
+      const totalSubsAgg = await sdpCol.aggregate([
         { $match: { msisdn: { $nin: [null, '', undefined] } } },
         { $group: { _id: '$msisdn' } },
         { $count: 'total' }
@@ -109,7 +171,7 @@ export const sourceDataService = {
 
       // 3. ACTIVE SUBSCRIBERS: Evaluates latest subscription event per MSISDN
       // Active only if latest state represents active subscription (not UNSUB1, not NotifyDeActivation, status 'A')
-      const activeAgg = await ghswSdpCol.aggregate([
+      const activeAgg = await sdpCol.aggregate([
         { $match: { msisdn: { $nin: [null, '', undefined] } } },
         { $sort: { createdAt: -1 } },
         {
@@ -136,17 +198,26 @@ export const sourceDataService = {
 
       // 4. GROSS BILLING (REVENUE): Actual charging info (chargeAmount) from sdplog
       // Never double-counts across multiple collections (strictly sdplog)
-      const revMatch = {
-        $or: [
-          { normalizedStatus: { $in: ['success', 'renewal'] } },
-          { subscriptionStatus: 'A', command: { $in: ['NotifyActivation', 'NotifyRenewal'] } }
-        ]
-      };
+      const isGhsw = dbName === 'ghsuperwinings' || platConfig?.code === 'GHSUPERWININGS';
+      const revMatch = isGhsw
+        ? {
+            $or: [
+              { normalizedStatus: { $in: ['success', 'renewal'] } },
+              { subscriptionStatus: 'A', command: { $in: ['NotifyActivation', 'NotifyRenewal'] } }
+            ]
+          }
+        : {
+            $or: [
+              { normalizedStatus: { $in: ['success', 'renewal'] } },
+              { subscriptionStatus: 'A', command: { $in: ['NotifyActivation', 'NotifyRenewal'] } },
+              { chargeAmount: { $gt: 0 } }
+            ]
+          };
       if (range !== 'all' && startDate) {
         revMatch.createdAt = { $gte: startDate, $lte: endDate };
       }
 
-      const revAgg = await ghswSdpCol.aggregate([
+      const revAgg = await sdpCol.aggregate([
         { $match: revMatch },
         { $group: { _id: null, total: { $sum: '$chargeAmount' } } }
       ]).toArray();
@@ -155,19 +226,29 @@ export const sourceDataService = {
       // 5. DAILY SUBSCRIPTION & SETTLEMENT BREAKDOWN LIST
       // Calculated via authoritative getSubscriptionBusinessReport method
       const businessReport = await sourceDataService.getSubscriptionBusinessReport({
+        dbName,
+        sdpColName,
+        callbackColName,
+        platformCode: platConfig?.code || 'GHSUPERWININGS',
         startDate: range !== 'all' && startDate ? startDate : new Date('2026-09-01T00:00:00.000Z'),
         endDate: range !== 'all' && endDate ? endDate : new Date('2026-10-01T00:00:00.000Z')
       });
       dailyBreakdown = businessReport.rows;
     } catch (err) {
-      console.error('[sourceDataService.getOverview] Error aggregating GHSUPERWINNINGS live data:', err);
+      console.error(`[sourceDataService.getOverview] Error aggregating live data for ${dbName}.${sdpColName}:`, err);
     }
+
+    const currentPlat = platConfig || {
+      id: 1,
+      code: 'GHSUPERWININGS',
+      name: 'ghsuperwinings'
+    };
 
     return {
       platform: {
-        id: 1,
-        code: 'GHSUPERWINNINGS',
-        name: 'ghsuperwinings'
+        id: currentPlat.id,
+        code: currentPlat.code,
+        name: currentPlat.name
       },
       kpis: {
         todayRenewals,
@@ -394,10 +475,12 @@ export const sourceDataService = {
     const isAll = !platformCode || platformCode === 'ALL';
     const platMeta = !isAll ? resolvePlatformMeta(platformCode) : null;
 
+    const platConfig = await getPlatformConfig(platformCode);
+
     // Handle Renewal status: query live timeline renewals from sdplog / sdplogs
     if (status && (status.toLowerCase() === 'renewal' || status.toLowerCase() === 'renewed')) {
-      const targetDb = platMeta?.dbName === 'ghanagameium' ? 'ghanagameium' : 'ghsuperwinings';
-      const targetColName = targetDb === 'ghanagameium' ? 'sdplogs' : 'sdplog';
+      const targetDb = platConfig?.dbName || (platMeta?.dbName === 'ghanagameium' ? 'ghanagameium' : 'ghsuperwinings');
+      const targetColName = platConfig?.sdpColName || (targetDb === 'ghanagameium' ? 'sdplogs' : 'sdplog');
       const col = getSourceCol(targetDb, targetColName);
 
       const filter = {};
@@ -481,8 +564,8 @@ export const sourceDataService = {
       };
     }
 
-    // Default to ghsuperwinings or ghanagameium
-    const targetDb = platMeta?.dbName || 'ghsuperwinings';
+    // Default to ghsuperwinings or target platform
+    const targetDb = platConfig?.dbName || platMeta?.dbName || 'ghsuperwinings';
     const targetColName = targetDb === 'ghanagameium' ? 'subscriptions' : 'users';
     const col = getSourceCol(targetDb, targetColName);
 
@@ -716,9 +799,10 @@ export const sourceDataService = {
 
     const isAll = !platformCode || platformCode === 'ALL';
     const platMeta = !isAll ? resolvePlatformMeta(platformCode) : null;
+    const platConfig = await getPlatformConfig(platformCode);
 
-    const targetDb = platMeta?.dbName === 'ghanagameium' ? 'ghanagameium' : 'ghsuperwinings';
-    const targetColName = targetDb === 'ghanagameium' ? 'sdplogs' : 'sdplog';
+    const targetDb = platConfig?.dbName || (platMeta?.dbName === 'ghanagameium' ? 'ghanagameium' : 'ghsuperwinings');
+    const targetColName = platConfig?.sdpColName || (targetDb === 'ghanagameium' ? 'sdplogs' : 'sdplog');
     const col = getSourceCol(targetDb, targetColName);
 
     const filter = {};
@@ -798,9 +882,10 @@ export const sourceDataService = {
 
     const isAll = !platformCode || platformCode === 'ALL';
     const platMeta = !isAll ? resolvePlatformMeta(platformCode) : null;
+    const platConfig = await getPlatformConfig(platformCode);
 
-    const targetDb = platMeta?.dbName === 'ghanagameium' ? 'ghanagameium' : 'ghsuperwinings';
-    const targetColName = targetDb === 'ghanagameium' ? 'sdplogs' : 'sdplog';
+    const targetDb = platConfig?.dbName || (platMeta?.dbName === 'ghanagameium' ? 'ghanagameium' : 'ghsuperwinings');
+    const targetColName = platConfig?.sdpColName || (targetDb === 'ghanagameium' ? 'sdplogs' : 'sdplog');
     const col = getSourceCol(targetDb, targetColName);
 
     const conditions = [];
@@ -909,21 +994,32 @@ export const sourceDataService = {
   },
 
   // ==========================================
-  // 7. SUBSCRIPTION BUSINESS REPORT (GHSUPERWINNINGS)
+  // 7. SUBSCRIPTION BUSINESS REPORT (DYNAMIC PER PLATFORM)
   // ==========================================
-  async getSubscriptionBusinessReport({ startDate, endDate, debug = false } = {}) {
-    const sdpCol = getSourceCol('ghsuperwinings', 'sdplog');
-    const gCol = getSourceCol('ghsuperwinings', 'ghanacallbacklogs');
+  async getSubscriptionBusinessReport({ dbName, sdpColName, callbackColName, platformCode, startDate, endDate, debug = false } = {}) {
+    const platConfig = await getPlatformConfig(platformCode);
+    const targetDb = dbName || platConfig?.dbName || 'ghsuperwinings';
+    const targetSdpCol = sdpColName || platConfig?.sdpColName || 'sdplog';
+    const targetCallbackCol = callbackColName || platConfig?.callbackColName || 'ghanacallbacklogs';
+
+    const sdpCol = getSourceCol(targetDb, targetSdpCol);
+    const gCol = getSourceCol(targetDb, targetCallbackCol);
 
     const start = startDate ? new Date(startDate) : new Date('2026-09-01T00:00:00.000Z');
     const end = endDate ? new Date(endDate) : new Date('2026-10-01T00:00:00.000Z');
 
+    const isGhsw = targetDb === 'ghsuperwinings' || (platConfig?.code === 'GHSUPERWININGS');
+
     // 1. Fetch relevant SDP records within the date range
+    const sdpQuery = {
+      createdAt: { $gte: start, $lt: end }
+    };
+    if (isGhsw) {
+      sdpQuery.offerCode = { $in: ['9923310010', '9923310009'] };
+    }
+
     const sdpDocs = await sdpCol.find(
-      {
-        createdAt: { $gte: start, $lt: end },
-        offerCode: { $in: ['9923310010', '9923310009'] }
-      },
+      sdpQuery,
       {
         projection: {
           createdAt: 1,
@@ -932,30 +1028,42 @@ export const sourceDataService = {
           offerCode: 1,
           chargeAmount: 1,
           subscriptionStatus: 1,
+          status: 1,
           subscriberLifeCycle: 1,
+          lifecycle: 1,
           reason: 1,
           transactionId: 1
         }
       }
     ).toArray();
 
-    // 2. Fetch CGW failed callbacks from ghanacallbacklogs for parking cross-verification
-    const cgwDocs = await gCol.find(
-      {
-        createdAt: { $gte: start, $lt: end },
-        callbackType: 'CGW',
-        status: { $ne: '200' },
-        offerCode: '9923310010'
-      },
-      {
-        projection: {
-          createdAt: 1,
-          msisdn: 1,
-          status: 1,
-          offerCode: 1
+    // 2. Fetch CGW failed callbacks from callback collection for parking cross-verification
+    let cgwDocs = [];
+    if (gCol) {
+      try {
+        const cgwQuery = {
+          createdAt: { $gte: start, $lt: end },
+          callbackType: 'CGW',
+          status: { $ne: '200' }
+        };
+        if (isGhsw) {
+          cgwQuery.offerCode = '9923310010';
         }
+        cgwDocs = await gCol.find(
+          cgwQuery,
+          {
+            projection: {
+              createdAt: 1,
+              msisdn: 1,
+              status: 1,
+              offerCode: 1
+            }
+          }
+        ).toArray();
+      } catch (err) {
+        // Safe fallback if collection not found
       }
-    ).toArray();
+    }
 
     // 3. Initialize daily tracking buckets for every date in range
     const daysMap = new Map();
@@ -1014,18 +1122,22 @@ export const sourceDataService = {
       // Deduplication key for transactions
       const txKey = doc.transactionId ? String(doc.transactionId) : `${doc.msisdn}_${doc.command}_${doc.createdAt.getTime()}_${charge}`;
 
-      // Offer Code: 9923310010 (Super Winnings Daily)
-      if (doc.offerCode === '9923310010') {
+      // Offer Code evaluation:
+      const isDailyOffer = doc.offerCode === '9923310010' || (!isGhsw && doc.offerCode !== '9923310009');
+      const isOnDemandOffer = doc.offerCode === '9923310009';
+
+      // Offer Code: 9923310010 (Super Winnings Daily or platform daily offer)
+      if (isDailyOffer) {
         // Activation Events
-        if (doc.command === 'NotifyActivation') {
-          const isSuccess = charge > 0 || doc.subscriptionStatus === 'A' || doc.reason === 'Activation Success';
+        if (doc.command === 'NotifyActivation' || (!doc.command && (doc.status === 'A' || charge > 0))) {
+          const isSuccess = charge > 0 || doc.subscriptionStatus === 'A' || doc.status === 'A' || doc.reason === 'Activation Success';
           if (isSuccess && doc.msisdn) {
             day._successMsisdns.add(doc.msisdn);
             if (charge > 0) day._billedMsisdns.add(doc.msisdn);
             dbg.sub1Count++;
           }
 
-          const isParking = doc.subscriptionStatus === 'G' || doc.subscriberLifeCycle === 'SUB2';
+          const isParking = doc.subscriptionStatus === 'G' || doc.status === 'G' || doc.subscriberLifeCycle === 'SUB2' || doc.lifecycle === 'SUB2';
           if (isParking && doc.msisdn) {
             day._parkingMsisdns.add(doc.msisdn);
             dbg.sub2Count++;
@@ -1033,7 +1145,7 @@ export const sourceDataService = {
         }
 
         // Retry Activation Success Events
-        if (doc.command === 'NotifyRenewal' && doc.reason === 'Retry_Activation_Success') {
+        if ((doc.command === 'NotifyRenewal' || !doc.command) && doc.reason === 'Retry_Activation_Success') {
           dbg.retryActivationCount++;
           // On early activation day (03/09), early retries count towards unique new subscribers
           if (dStr === '2026-09-03' && doc.createdAt && doc.createdAt.toISOString() < '2026-09-03T21:00:00.000Z') {
@@ -1056,7 +1168,7 @@ export const sourceDataService = {
       }
 
       // Offer Code: 9923310009 (Super Winnings on-demand Daily)
-      if (doc.offerCode === '9923310009') {
+      if (isOnDemandOffer) {
         if (charge > 0) {
           if (!day._seenTxIds.has(txKey)) {
             day._seenTxIds.add(txKey);
@@ -1112,7 +1224,7 @@ export const sourceDataService = {
 
       const newSubs = day._successMsisdns.size;
       const billedSubs = day._billedMsisdns.size;
-      const parking = dStr === '2026-09-03' ? 353 : day._parkingMsisdns.size;
+      const parking = (isGhsw && dStr === '2026-09-03') ? 353 : day._parkingMsisdns.size;
       const dailyRev = Math.round(day.super_winnings_daily_rev * 100) / 100;
       const onDemandRev = Math.round(day.super_winnings_ondemand_rev * 100) / 100;
       const grandRev = Math.round((dailyRev + onDemandRev) * 100) / 100;

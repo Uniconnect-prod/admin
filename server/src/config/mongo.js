@@ -126,9 +126,59 @@ async function initReportingAdminDb() {
     ]);
   }
 
-  // 2. Platforms
+  // 2. Platforms (seeded only if empty)
   const platformsCol = rDb.collection('admin_platforms');
-  await platformsCol.deleteMany({});
+  const platformCount = await platformsCol.countDocuments();
+  if (platformCount === 0) {
+    console.log('[Mongo] Initializing default platforms...');
+    await platformsCol.insertMany([
+      {
+        id: 1,
+        name: 'ghsuperwinings',
+        code: 'GHSUPERWININGS',
+        logo_url: '/assets/platforms/ghsuperwinings.svg',
+        description: 'SuperWinnings interactive SMS/Web trivia portal with daily cash prizes.',
+        status: 'ACTIVE',
+        enabled_modules: ['Subscribers', 'Renewals', 'Churn', 'Quiz', 'Revenue', 'Reports'],
+        country: 'Ghana',
+        database_name: 'ghsuperwinings',
+        collection_sdp: 'sdplog',
+        collection_callback: 'ghanacallbacklogs',
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        id: 2,
+        name: 'ghanagameium',
+        code: 'GHANAGAMEIUM',
+        logo_url: '/assets/platforms/ghanagameium.svg',
+        description: 'GhanaGameium mobile gaming portal.',
+        status: 'ACTIVE',
+        enabled_modules: ['Subscribers', 'Renewals', 'Churn', 'Revenue', 'Reports'],
+        country: 'Ghana',
+        database_name: 'ghanagameium',
+        collection_sdp: 'sdplogs',
+        collection_callback: 'ghanacallbacklogs',
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        id: 3,
+        name: 'crazymuzik',
+        code: 'CRAZYMUZIK',
+        logo_url: '/assets/platforms/crazymuzik.svg',
+        description: 'CrazyMuzik streaming and artist discovery portal.',
+        status: 'ACTIVE',
+        enabled_modules: ['Subscribers', 'Renewals', 'Churn', 'Revenue', 'Reports'],
+        country: 'Ghana',
+        database_name: 'crazymuzik',
+        collection_sdp: 'sdplog',
+        collection_callback: 'ghanacallbacklogs',
+        created_at: new Date(),
+        updated_at: new Date()
+      }
+    ]);
+  }
 
   // 3. Admin Users
   const usersCol = rDb.collection('admin_users');
@@ -164,9 +214,28 @@ async function initReportingAdminDb() {
     ]);
   }
 
-  // 4. Platform Access Windows
+  // 4. Platform Access Windows (seeded only if empty)
   const accessCol = rDb.collection('admin_platform_access');
-  await accessCol.deleteMany({});
+  const accessCount = await accessCol.countDocuments();
+  if (accessCount === 0) {
+    const allP = await platformsCol.find({}).toArray();
+    const now = new Date();
+    const accessDocs = allP.map(p => ({
+      id: p.id,
+      user_id: 1,
+      platform_id: p.id,
+      role_id: 1,
+      start_date: new Date(Date.now() - 30 * 86400000).toISOString(),
+      end_date: new Date(Date.now() + 730 * 86400000).toISOString(),
+      status: 'ACTIVE',
+      created_by: 1,
+      created_at: now,
+      updated_at: now
+    }));
+    if (accessDocs.length > 0) {
+      await accessCol.insertMany(accessDocs);
+    }
+  }
 
   // Ensure unique indexes on admin collections
   await usersCol.createIndex({ username: 1 }, { unique: true }).catch(() => {});

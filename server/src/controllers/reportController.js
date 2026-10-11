@@ -174,7 +174,9 @@ export const reportController = {
   async getSubscriptionBusinessReport(req, res) {
     try {
       const { from, to, debug } = req.query;
+      const platformCode = req.activePlatform?.isAll ? 'ALL' : req.activePlatform?.code;
       const report = await sourceDataService.getSubscriptionBusinessReport({
+        platformCode,
         startDate: from || '2026-09-01T00:00:00.000Z',
         endDate: to || '2026-10-01T00:00:00.000Z',
         debug: debug === 'true' || debug === true
