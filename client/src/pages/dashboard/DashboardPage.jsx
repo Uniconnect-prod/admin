@@ -30,8 +30,8 @@ export const DashboardPage = () => {
   const navigate = useNavigate();
   const { activePlatform } = useAuth();
   const [range, setRange] = useState('30d');
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
+  const [customFrom, setCustomFrom] = useState('2026-09-01');
+  const [customTo, setCustomTo] = useState('2026-09-30');
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [data, setData] = useState(null);
@@ -47,6 +47,11 @@ export const DashboardPage = () => {
   const abortControllerRef = useRef(null);
 
   const fetchDashboardData = useCallback(async (isBackground = false) => {
+    // Prevent partial or incomplete queries when user selects custom range
+    if (range === 'custom' && (!customFrom || !customTo)) {
+      return;
+    }
+
     if (!isBackground) {
       setLoading(true);
     } else {
@@ -241,6 +246,10 @@ export const DashboardPage = () => {
               selectedRange={range}
               onSelectRange={(r) => {
                 setRange(r);
+                if (r === 'custom') {
+                  if (!customFrom) setCustomFrom('2026-09-01');
+                  if (!customTo) setCustomTo('2026-09-30');
+                }
                 setCurrentPage(1);
               }}
               customFrom={customFrom}
@@ -298,9 +307,9 @@ export const DashboardPage = () => {
         </div>
       ) : (
         <div className="kpi-grid">
-          {/* Card 1: Today's Renewals */}
+          {/* Card 1: Today's Renewals / Period Renewals */}
           <KpiCard
-            title="Today's Renewals"
+            title={renewals.title || (range === 'today' ? "Today's Renewals" : "Total Renewals")}
             value={renewals.value}
             change={renewals.change}
             trend={renewals.trend}

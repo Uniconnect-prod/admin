@@ -90,10 +90,9 @@ export function getDateFilter(range = '30d', from, to) {
   let endDate = new Date(now.getTime());
   let startDate = new Date(now.getTime());
 
-  if (from && to) {
-    startDate = new Date(from);
-    endDate = new Date(to);
-    // Set end date to end of that day
+  if (from || to) {
+    startDate = from ? new Date(from) : new Date('2026-09-01T00:00:00.000Z');
+    endDate = to ? new Date(to) : new Date('2026-09-30T23:59:59.999Z');
     endDate.setUTCHours(23, 59, 59, 999);
     return { startDate, endDate };
   }
@@ -101,7 +100,14 @@ export function getDateFilter(range = '30d', from, to) {
   switch (range) {
     case 'today':
       startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
       break;
+    case 'yesterday': {
+      const y = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      startDate = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 0, 0, 0, 0));
+      endDate = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 23, 59, 59, 999));
+      break;
+    }
     case '7d':
       startDate.setUTCDate(now.getUTCDate() - 7);
       break;
@@ -110,6 +116,10 @@ export function getDateFilter(range = '30d', from, to) {
       break;
     case '12m':
       startDate.setUTCMonth(now.getUTCMonth() - 12);
+      break;
+    case 'custom':
+      startDate = new Date('2026-09-01T00:00:00.000Z');
+      endDate = new Date('2026-09-30T23:59:59.999Z');
       break;
     case '30d':
     default:
@@ -147,102 +157,38 @@ export const sourceDataService = {
     let dailyBreakdown = [];
 
     try {
-      // 1. TODAY'S RENEWALS: Actual renewal callbacks processed today in Africa/Accra timezone
-      // Event: command = "NotifyRenewal", successful renewal (status A or normalized renewal)
-      // Excludes: CGW redirect records, duplicate callbacks, status=200 redirect records
-      const todayRenewalsCount = await sdpCol.countDocuments({
-        createdAt: { $gte: todayStart, $lte: todayEnd },
+      // 1. RENEWALS: Today's renewals if range is 'today', otherwise period renewals
+      const renewalQuery = {
         $or: [
           { command: 'NotifyRenewal', subscriptionStatus: 'A' },
           { command: 'NotifyRenewal', normalizedStatus: 'renewal' },
           { command: 'NotifyRenewal' },
           { lifecycle: { $regex: '^REN' }, status: 'A' }
         ]
-      });
-      todayRenewals = todayRenewalsCount;
-
-      // 2. TOTAL SUBSCRIBERS: Unique non-empty MSISDNs in live database
-      // Excludes null/empty/invalid values, groups by MSISDN so multiple callbacks count as 1
-      const totalSubsAgg = await sdpCol.aggregate([
-        { $match: { msisdn: { $nin: [null, '', undefined] } } },
-        { $group: { _id: '$msisdn' } },
-        { $count: 'total' }
-      ]).toArray();
-      totalSubscribers = totalSubsAgg[0]?.total || 0;
-
-      // 3. ACTIVE SUBSCRIBERS: Evaluates latest subscription event per MSISDN
-      // Active only if latest state represents active subscription (not UNSUB1, not NotifyDeActivation, status 'A')
-      const activeAgg = await sdpCol.aggregate([
-        { $match: { msisdn: { $nin: [null, '', undefined] } } },
-        { $sort: { createdAt: -1 } },
-        {
-          $group: {
-            _id: '$msisdn',
-            latestStatus: { $first: { $ifNull: ['$subscriptionStatus', '$status'] } },
-            latestCmd: { $first: '$command' },
-            latestLifecycle: { $first: { $ifNull: ['$subscriberLifeCycle', '$lifecycle'] } },
-            latestNormStatus: { $first: '$normalizedStatus' },
-            latestCreatedAt: { $first: '$createdAt' }
-          }
-        },
-        {
-          $match: {
-            latestStatus: 'A',
-            latestLifecycle: { $ne: 'UNSUB1' },
-            latestCmd: { $ne: 'NotifyDeActivation' },
-            latestNormStatus: { $ne: 'churn' }
-          }
-        },
-        { $count: 'activeCount' }
-      ]).toArray();
-      activeSubscribers = activeAgg[0]?.activeCount || 0;
-
-      // 4. GROSS BILLING (REVENUE): Actual charging info (chargeAmount) from sdplog
-      // Never double-counts across multiple collections (strictly sdplog)
-      const isGhsw = dbName === 'ghsuperwinings' || platConfig?.code === 'GHSUPERWININGS';
-      const revMatch = isGhsw
-        ? {
-            $or: [
-              { normalizedStatus: { $in: ['success', 'renewal'] } },
-              { subscriptionStatus: 'A', command: { $in: ['NotifyActivation', 'NotifyRenewal'] } }
-            ]
-          }
-        : {
-            $or: [
-              { normalizedStatus: { $in: ['success', 'renewal'] } },
-              { subscriptionStatus: 'A', command: { $in: ['NotifyActivation', 'NotifyRenewal'] } },
-              { chargeAmount: { $gt: 0 } }
-            ]
-          };
-      if (range !== 'all' && startDate) {
-        revMatch.createdAt = { $gte: startDate, $lte: endDate };
+      };
+      if (range === 'today') {
+        renewalQuery.createdAt = { $gte: todayStart, $lte: todayEnd };
+      } else if (range !== 'all' && startDate && endDate) {
+        renewalQuery.createdAt = { $gte: startDate, $lte: endDate };
       }
 
-      const revAgg = await sdpCol.aggregate([
-        { $match: revMatch },
-        { $group: { _id: null, total: { $sum: '$chargeAmount' } } }
-      ]).toArray();
-      grossRevenue = Number((revAgg[0]?.total || 0).toFixed(2));
-
-      // Fallback: If GHGAMEZONE has no subscriber logs for range, retain established live calculation baseline
-      if (totalSubscribers === 0 && (platConfig?.code === 'GHGAMEZONE' || platConfig?.code === 'GHANAGAMEIUM')) {
-        const fallbackCol = getSourceCol('ghsuperwinings', 'sdplog');
-        const fbTotalAgg = await fallbackCol.aggregate([
+      // Execute live metrics and authoritative business report concurrently
+      const [renewalsCount, totalSubsAgg, activeAgg, businessReport] = await Promise.all([
+        sdpCol.countDocuments(renewalQuery),
+        sdpCol.aggregate([
           { $match: { msisdn: { $nin: [null, '', undefined] } } },
           { $group: { _id: '$msisdn' } },
           { $count: 'total' }
-        ]).toArray();
-        totalSubscribers = fbTotalAgg[0]?.total || 0;
-
-        const fbActiveAgg = await fallbackCol.aggregate([
+        ]).toArray(),
+        sdpCol.aggregate([
           { $match: { msisdn: { $nin: [null, '', undefined] } } },
           { $sort: { createdAt: -1 } },
           {
             $group: {
               _id: '$msisdn',
-              latestStatus: { $first: '$subscriptionStatus' },
+              latestStatus: { $first: { $ifNull: ['$subscriptionStatus', '$status'] } },
               latestCmd: { $first: '$command' },
-              latestLifecycle: { $first: '$subscriberLifeCycle' },
+              latestLifecycle: { $first: { $ifNull: ['$subscriberLifeCycle', '$lifecycle'] } },
               latestNormStatus: { $first: '$normalizedStatus' },
               latestCreatedAt: { $first: '$createdAt' }
             }
@@ -256,41 +202,28 @@ export const sourceDataService = {
             }
           },
           { $count: 'activeCount' }
-        ]).toArray();
-        activeSubscribers = fbActiveAgg[0]?.activeCount || 0;
+        ]).toArray(),
+        sourceDataService.getSubscriptionBusinessReport({
+          dbName,
+          sdpColName,
+          callbackColName,
+          platformCode: platConfig?.code || 'GHSUPERWININGS',
+          startDate,
+          endDate
+        })
+      ]);
 
-        const fbRevMatch = {
-          $or: [
-            { normalizedStatus: { $in: ['success', 'renewal'] } },
-            { subscriptionStatus: 'A', command: { $in: ['NotifyActivation', 'NotifyRenewal'] } }
-          ]
-        };
-        if (range !== 'all' && startDate) {
-          fbRevMatch.createdAt = { $gte: startDate, $lte: endDate };
-        }
-        const fbRevAgg = await fallbackCol.aggregate([
-          { $match: fbRevMatch },
-          { $group: { _id: null, total: { $sum: '$chargeAmount' } } }
-        ]).toArray();
-        grossRevenue = Number((fbRevAgg[0]?.total || 0).toFixed(2));
-      }
+      todayRenewals = renewalsCount || 0;
+      totalSubscribers = totalSubsAgg[0]?.total || 0;
+      activeSubscribers = activeAgg[0]?.activeCount || 0;
+      dailyBreakdown = businessReport.rows || [];
 
-      // 5. DAILY SUBSCRIPTION & SETTLEMENT BREAKDOWN LIST
-      // Calculated via authoritative getSubscriptionBusinessReport method
-      const businessReport = await sourceDataService.getSubscriptionBusinessReport({
-        dbName,
-        sdpColName,
-        callbackColName,
-        platformCode: platConfig?.code || 'GHSUPERWININGS',
-        startDate: range !== 'all' && startDate ? startDate : new Date('2026-09-01T00:00:00.000Z'),
-        endDate: range !== 'all' && endDate ? endDate : new Date('2026-10-01T00:00:00.000Z')
-      });
-      dailyBreakdown = businessReport.rows;
-      if (grossRevenue === 0 && dailyBreakdown.length > 0) {
+      // Authoritative sync: KPI grossRevenue matches businessReport totals for selected date range
+      if (businessReport.totals && typeof businessReport.totals.grandTotal === 'number' && businessReport.totals.grandTotal > 0) {
+        grossRevenue = Number(businessReport.totals.grandTotal.toFixed(2));
+      } else if (dailyBreakdown.length > 0) {
         const sumDaily = dailyBreakdown.reduce((s, r) => s + (r.grand_total_rev || r.grandTotal || 0), 0);
-        if (sumDaily > 0) {
-          grossRevenue = Number(sumDaily.toFixed(2));
-        }
+        grossRevenue = Number(sumDaily.toFixed(2));
       }
     } catch (err) {
       console.error(`[sourceDataService.getOverview] Error aggregating live data for ${dbName}.${sdpColName}:`, err);
@@ -302,6 +235,8 @@ export const sourceDataService = {
       name: 'ghsuperwinings'
     };
 
+    const renewalsTitle = range === 'today' ? "Today's Renewals" : "Total Renewals";
+
     return {
       platform: {
         id: currentPlat.id,
@@ -310,7 +245,7 @@ export const sourceDataService = {
       },
       kpis: {
         todayRenewals: {
-          title: "Today's Renewals",
+          title: renewalsTitle,
           value: todayRenewals.toLocaleString(),
           rawValue: todayRenewals
         },
@@ -325,7 +260,7 @@ export const sourceDataService = {
           rawValue: activeSubscribers
         },
         grossRevenue: {
-          title: 'Gross Revenue',
+          title: 'Gross Billing (Revenue)',
           value: `GHC ${grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           rawValue: grossRevenue
         },
@@ -364,7 +299,7 @@ export const sourceDataService = {
         },
         cards: {
           todayRenewals: {
-            title: "Today's Renewals",
+            title: renewalsTitle,
             value: todayRenewals.toLocaleString(),
             rawValue: todayRenewals,
             change: null,
