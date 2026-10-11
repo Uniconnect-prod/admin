@@ -23,9 +23,11 @@ import {
   Radio,
   FileCode,
   Activity,
-  Users
+  Users,
+  X
 } from 'lucide-react';
 import api from '../../services/api';
+import './PlatformsPage.scss';
 
 const TIMEZONE_OPTIONS = [
   { value: 'Africa/Accra', label: 'Africa/Accra (UTC+0, Ghana/Universal)' },
@@ -459,8 +461,8 @@ export const PlatformWizardModal = ({
   };
 
   return (
-    <div className="modal-backdrop fade-in">
-      <div className="modal-container platform-wizard-modal">
+    <div className="modal-backdrop fade-in" onClick={onClose}>
+      <div className="modal-dialog platform-wizard-modal" onClick={(e) => e.stopPropagation()}>
         {/* Wizard Header */}
         <div className="modal-header">
           <div className="wizard-title-group">
@@ -476,8 +478,8 @@ export const PlatformWizardModal = ({
               </p>
             </div>
           </div>
-          <button type="button" className="close-btn" onClick={onClose}>
-            &times;
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
+            <X size={18} />
           </button>
         </div>
 
