@@ -237,6 +237,66 @@ async function initReportingAdminDb() {
     }
   }
 
+  // 5. Country Profiles (seeded only if empty)
+  const countriesCol = rDb.collection('admin_countries');
+  const countryCount = await countriesCol.countDocuments();
+  if (countryCount === 0) {
+    console.log('[Mongo] Initializing default country profiles...');
+    const now = new Date();
+    await countriesCol.insertMany([
+      {
+        id: 1,
+        name: 'Ghana',
+        code: 'GH',
+        currency: 'GHS',
+        default_timezone: 'Africa/Accra',
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      },
+      {
+        id: 2,
+        name: 'Nigeria',
+        code: 'NG',
+        currency: 'NGN',
+        default_timezone: 'Africa/Lagos',
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      },
+      {
+        id: 3,
+        name: 'Kenya',
+        code: 'KE',
+        currency: 'KES',
+        default_timezone: 'Africa/Nairobi',
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      },
+      {
+        id: 4,
+        name: 'Uganda',
+        code: 'UG',
+        currency: 'UGX',
+        default_timezone: 'Africa/Kampala',
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      },
+      {
+        id: 5,
+        name: 'South Africa',
+        code: 'ZA',
+        currency: 'ZAR',
+        default_timezone: 'Africa/Johannesburg',
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      }
+    ]);
+  }
+
   // Ensure unique indexes on admin collections
   await usersCol.createIndex({ username: 1 }, { unique: true }).catch(() => {});
   await usersCol.createIndex({ email: 1 }, { unique: true }).catch(() => {});
@@ -244,6 +304,9 @@ async function initReportingAdminDb() {
   await platformsCol.createIndex({ id: 1 }, { unique: true }).catch(() => {});
   await platformsCol.createIndex({ code: 1 }, { unique: true }).catch(() => {});
   await accessCol.createIndex({ user_id: 1, platform_id: 1 }).catch(() => {});
+  await countriesCol.createIndex({ id: 1 }, { unique: true }).catch(() => {});
+  await countriesCol.createIndex({ name: 1 }, { unique: true }).catch(() => {});
+  await countriesCol.createIndex({ code: 1 }, { unique: true }).catch(() => {});
   await rDb.collection('admin_audit_logs').createIndex({ created_at: -1 }).catch(() => {});
 
   try {

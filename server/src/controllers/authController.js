@@ -49,7 +49,7 @@ export const authController = {
       // 1. Fetch user's date-wise platform assignments from platform_access
       let rawAccess = await db.all(
         `SELECT pa.id, pa.platform_id, p.code as platform_code, p.name as platform_name,
-                p.logo_url, p.enabled_modules, pa.role_id, r.name as role_name,
+                p.logo_url, p.country as platform_country, p.enabled_modules, pa.role_id, r.name as role_name,
                 pa.start_date, pa.end_date, pa.status
          FROM platform_access pa
          JOIN platforms p ON pa.platform_id = p.id
@@ -62,7 +62,7 @@ export const authController = {
       if (!rawAccess || rawAccess.length === 0) {
         const fallback = await db.all(
           `SELECT up.id, up.platform_id, p.code as platform_code, p.name as platform_name,
-                  p.logo_url, p.enabled_modules, up.role_id, r.name as role_name,
+                  p.logo_url, p.country as platform_country, p.enabled_modules, up.role_id, r.name as role_name,
                   DATETIME('now', '-30 days') as start_date,
                   DATETIME('now', '+365 days') as end_date,
                   'ACTIVE' as status
@@ -88,6 +88,7 @@ export const authController = {
           code: p.platform_code,
           name: p.platform_name,
           logo_url: p.logo_url,
+          country: p.platform_country || p.country || 'Ghana',
           enabled_modules: modules,
           role_id: p.role_id,
           role: p.role_name,
@@ -173,6 +174,7 @@ export const authController = {
           code: primary.code,
           name: primary.name,
           logo_url: primary.logo_url,
+          country: primary.country || 'Ghana',
           enabled_modules: primary.enabled_modules,
           startDate: primary.start_date,
           endDate: primary.end_date,
@@ -217,6 +219,7 @@ export const authController = {
             code: p.code,
             name: p.name,
             logo_url: p.logo_url,
+            country: p.country || 'Ghana',
             role: 'Super Admin',
             enabled_modules: modules,
             status: 'ACTIVE',
@@ -236,6 +239,7 @@ export const authController = {
             name: user.name,
             email: user.email,
             username: user.username,
+            country: user.country || 'Ghana',
             isSuperAdmin,
             activeRole
           },

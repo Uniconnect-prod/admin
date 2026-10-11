@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Shield, Bell, Sliders, CheckCircle2, AlertCircle } from 'lucide-react';
+import { User, Shield, Bell, Sliders, CheckCircle2, AlertCircle, Globe } from 'lucide-react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -125,6 +125,18 @@ export const SettingsPage = () => {
             <Sliders size={16} />
             Platform Preferences
           </button>
+
+          {user?.isSuperAdmin && (
+            <button
+              type="button"
+              className="settings-nav-btn"
+              onClick={() => window.location.href = '/countries'}
+              style={{ marginTop: '0.5rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.75rem', color: '#0284c7' }}
+            >
+              <Globe size={16} />
+              Country & Market Settings →
+            </button>
+          )}
         </aside>
 
         {/* Content Panel */}

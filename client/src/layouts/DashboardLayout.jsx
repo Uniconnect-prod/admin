@@ -195,14 +195,24 @@ export const DashboardLayout = () => {
                 {!sidebarCollapsed && <span className="nav-label">All Users</span>}
               </Link>
               {isSuperAdmin && (
-                <Link
-                  to="/platforms"
-                  className={`nav-item ${location.pathname === '/platforms' ? 'active' : ''}`}
-                  title="Platforms Config"
-                >
-                  <Layers size={18} className="nav-icon" />
-                  {!sidebarCollapsed && <span className="nav-label">Platforms Config</span>}
-                </Link>
+                <>
+                  <Link
+                    to="/platforms"
+                    className={`nav-item ${location.pathname === '/platforms' ? 'active' : ''}`}
+                    title="Platforms Config"
+                  >
+                    <Layers size={18} className="nav-icon" />
+                    {!sidebarCollapsed && <span className="nav-label">Platforms Config</span>}
+                  </Link>
+                  <Link
+                    to="/countries"
+                    className={`nav-item ${location.pathname === '/countries' ? 'active' : ''}`}
+                    title="Country Management"
+                  >
+                    <Globe size={18} className="nav-icon" />
+                    {!sidebarCollapsed && <span className="nav-label">Country Management</span>}
+                  </Link>
+                </>
               )}
             </div>
           )}

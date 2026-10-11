@@ -7,13 +7,14 @@ export const userController = {
   async getAllUsers(req, res) {
     try {
       const users = await db.all(
-        `SELECT id, name, email, username, status, last_login_at, created_at 
+        `SELECT id, name, email, username, status, country, last_login_at, created_at 
          FROM users WHERE deleted_at IS NULL ORDER BY id ASC`
       );
 
       // Fetch all platform_access records
       const allAccess = await db.all(
         `SELECT pa.id, pa.user_id, pa.platform_id, p.name as platform_name, p.code as platform_code,
+                p.country as platform_country,
                 pa.role_id, r.name as role_name, pa.start_date, pa.end_date, pa.status
          FROM platform_access pa
          JOIN platforms p ON pa.platform_id = p.id
@@ -29,6 +30,7 @@ export const userController = {
 
         return {
           ...user,
+          country: user.country || 'Ghana',
           roles,
           primaryRole: roles[0] || 'Viewer',
           platforms: formattedPlatforms,
@@ -47,7 +49,7 @@ export const userController = {
     try {
       const { id } = req.params;
       const user = await db.get(
-        `SELECT id, name, email, username, status, last_login_at, created_at 
+        `SELECT id, name, email, username, status, country, last_login_at, created_at 
          FROM users WHERE id = ? AND deleted_at IS NULL`,
         [id]
       );
@@ -58,6 +60,7 @@ export const userController = {
 
       const accessRecords = await db.all(
         `SELECT pa.id, pa.user_id, pa.platform_id, p.name as platform_name, p.code as platform_code,
+                p.country as platform_country,
                 pa.role_id, r.name as role_name, pa.start_date, pa.end_date, pa.status
          FROM platform_access pa
          JOIN platforms p ON pa.platform_id = p.id
@@ -73,6 +76,7 @@ export const userController = {
         success: true,
         data: {
           ...user,
+          country: user.country || 'Ghana',
           platforms: formatted
         }
       });
@@ -84,7 +88,7 @@ export const userController = {
 
   async createUser(req, res) {
     try {
-      const { name, email, username, password, status, platform_assignments } = req.body;
+      const { name, email, username, password, status, country, platform_assignments } = req.body;
 
       if (!name || !email || !username || !password) {
         return res.status(400).json({
@@ -133,11 +137,12 @@ export const userController = {
 
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(password, salt);
+      const userCountry = (country || 'Ghana').trim();
 
       const userResult = await db.run(
-        `INSERT INTO users (name, email, username, password_hash, status)
-         VALUES (?, ?, ?, ?, ?)`,
-        [name.trim(), email.trim(), username.trim(), passwordHash, status || 'ACTIVE']
+        `INSERT INTO users (name, email, username, password_hash, status, country)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [name.trim(), email.trim(), username.trim(), passwordHash, status || 'ACTIVE', userCountry]
       );
 
       const newUserId = userResult.lastID;
@@ -166,12 +171,12 @@ export const userController = {
         }
       }
 
-      await logAudit(req, 'CREATE_USER', 'User', newUserId, { name, email, username });
+      await logAudit(req, 'CREATE_USER', 'User', newUserId, { name, email, username, country: userCountry });
 
       return res.status(201).json({
         success: true,
         message: 'User created successfully with platform authorizations.',
-        data: { id: newUserId, name, email, username }
+        data: { id: newUserId, name, email, username, country: userCountry }
       });
     } catch (err) {
       console.error('[UserController] createUser error:', err);
@@ -182,7 +187,7 @@ export const userController = {
   async updateUser(req, res) {
     try {
       const { id } = req.params;
-      const { name, email, username, status, platform_assignments } = req.body;
+      const { name, email, username, status, country, platform_assignments } = req.body;
 
       const user = await db.get('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
       if (!user) {
@@ -211,9 +216,10 @@ export const userController = {
              email = COALESCE(?, email),
              username = COALESCE(?, username),
              status = COALESCE(?, status),
+             country = COALESCE(?, country),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [name, email, username, status, id]
+        [name, email, username, status, country, id]
       );
 
       // If platform assignments updated

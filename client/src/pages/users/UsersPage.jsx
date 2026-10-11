@@ -16,6 +16,7 @@ export const UsersPage = () => {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [allPlatforms, setAllPlatforms] = useState([]);
+  const [countries, setCountries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formError, setFormError] = useState('');
 
@@ -47,6 +48,7 @@ export const UsersPage = () => {
     username: '',
     password: '',
     confirmPassword: '',
+    country: 'Ghana',
     status: 'ACTIVE',
     platform_assignments: [] // [{ platform_id, role_id, start_date, end_date, status }]
   });
@@ -57,6 +59,7 @@ export const UsersPage = () => {
     name: '',
     email: '',
     username: '',
+    country: 'Ghana',
     status: 'ACTIVE',
     platform_assignments: []
   });
@@ -66,15 +69,17 @@ export const UsersPage = () => {
   const fetchUsersAndMeta = useCallback(async () => {
     try {
       setLoading(true);
-      const [uRes, rRes, pRes] = await Promise.all([
+      const [uRes, rRes, pRes, cRes] = await Promise.all([
         api.get('/users'),
         api.get('/users/roles'),
-        api.get('/platforms')
+        api.get('/platforms'),
+        api.get('/countries?status=ACTIVE')
       ]);
 
       if (uRes.data?.success) setUsers(uRes.data.data);
       if (rRes.data?.success) setRoles(rRes.data.data);
       if (pRes.data?.success) setAllPlatforms(pRes.data.data);
+      if (cRes.data?.success) setCountries(cRes.data.data);
     } catch (err) {
       console.error('Failed to load user management data:', err);
     } finally {
@@ -159,6 +164,7 @@ export const UsersPage = () => {
           username: '',
           password: '',
           confirmPassword: '',
+          country: 'Ghana',
           status: 'ACTIVE',
           platform_assignments: []
         });
@@ -186,6 +192,7 @@ export const UsersPage = () => {
       name: userRow.name || '',
       email: userRow.email || '',
       username: userRow.username || '',
+      country: userRow.country || 'Ghana',
       status: userRow.status || 'ACTIVE',
       platform_assignments: assignments
     });
@@ -287,6 +294,26 @@ export const UsersPage = () => {
       header: 'Email',
       key: 'email',
       render: (row) => <span className="text-secondary">{row.email}</span>
+    },
+    {
+      header: 'Assigned Country',
+      key: 'country',
+      render: (row) => (
+        <span
+          style={{
+            background: '#f1f5f9',
+            color: '#0f172a',
+            border: '1px solid #cbd5e1',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            display: 'inline-block'
+          }}
+        >
+          {row.country || 'Ghana'}
+        </span>
+      )
     },
     {
       header: 'Platform Access & Validity Window',
@@ -516,69 +543,124 @@ export const UsersPage = () => {
 
           <div className="form-divider" />
 
+          <div className="form-group mb-3">
+            <label style={{ fontWeight: 600, color: '#1e293b' }}>Assigned Operating Country / Market</label>
+            <select
+              className="form-control"
+              value={newUser.country}
+              onChange={(e) => setNewUser({ ...newUser, country: e.target.value })}
+            >
+              {countries.map(c => (
+                <option key={c.id} value={c.name}>{c.name} ({c.code}) - {c.currency}</option>
+              ))}
+              <option value="ALL">All Countries / Universal</option>
+            </select>
+            <span style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
+              Assigning a country dynamically filters the platform selection below to platforms active in this market.
+            </span>
+          </div>
+
           <h4 className="platform-rbac-title">Platform Access & Validity Date Windows</h4>
           <p className="platform-rbac-sub">
             Select platform(s), assign specific roles, and define Start and End dates. Access is evaluated in real-time.
           </p>
 
-          <div className="platform-assign-rows">
-            {allPlatforms.map((p) => {
-              const assigned = newUser.platform_assignments.find(a => a.platform_id === p.id);
-              return (
-                <div key={p.id} className={`platform-assign-item ${assigned ? 'assigned' : ''}`}>
-                  <div className="platform-top-row">
-                    <label className="platform-checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={!!assigned}
-                        onChange={() => handleTogglePlatformAssignment(p.id)}
-                      />
-                      <span className="p-name"><strong>{p.name}</strong> ({p.code})</span>
-                    </label>
+          {(() => {
+            const countryFilter = newUser.country;
+            const displayedPlatforms = (countryFilter && countryFilter !== 'ALL')
+              ? allPlatforms.filter(p => (p.country || 'Ghana').toLowerCase() === countryFilter.toLowerCase())
+              : allPlatforms;
 
-                    {assigned && (
-                      <div className="role-and-status">
-                        <select
-                          className="form-control role-select"
-                          value={assigned.role_id}
-                          onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'role_id', parseInt(e.target.value, 10))}
-                        >
-                          {roles.map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                  </div>
-
-                  {assigned && (
-                    <div className="platform-dates-row">
-                      <div className="date-input-group">
-                        <label>Start Date</label>
-                        <input
-                          type="date"
-                          className="form-control date-input"
-                          value={assigned.start_date || ''}
-                          onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'start_date', e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="date-input-group">
-                        <label>End Date</label>
-                        <input
-                          type="date"
-                          className="form-control date-input"
-                          value={assigned.end_date || ''}
-                          onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'end_date', e.target.value)}
-                          required
-                        />
-                      </div>
-                    </div>
+            return (
+              <>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#475569' }}>
+                    Available Platforms in {countryFilter === 'ALL' ? 'All Countries' : countryFilter} ({displayedPlatforms.length}):
+                  </span>
+                  {allPlatforms.length > displayedPlatforms.length && (
+                    <button
+                      type="button"
+                      className="btn-link"
+                      style={{ fontSize: '0.75rem', background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer' }}
+                      onClick={() => setNewUser({ ...newUser, country: 'ALL' })}
+                    >
+                      Show platforms from all countries
+                    </button>
                   )}
                 </div>
-              );
-            })}
-          </div>
+
+                <div className="platform-assign-rows">
+                  {displayedPlatforms.length === 0 ? (
+                    <div style={{ padding: '1rem', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '0.85rem' }}>
+                      No platforms found operating in {countryFilter}. Please add platforms for this country in Platforms Config or switch country.
+                    </div>
+                  ) : (
+                    displayedPlatforms.map((p) => {
+                      const assigned = newUser.platform_assignments.find(a => a.platform_id === p.id);
+                      return (
+                        <div key={p.id} className={`platform-assign-item ${assigned ? 'assigned' : ''}`}>
+                          <div className="platform-top-row">
+                            <label className="platform-checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={!!assigned}
+                                onChange={() => handleTogglePlatformAssignment(p.id)}
+                              />
+                              <span className="p-name">
+                                <strong>{p.name}</strong> ({p.code})
+                                <span style={{ marginLeft: '8px', padding: '1px 6px', borderRadius: '4px', fontSize: '0.72rem', background: '#e2e8f0', color: '#475569', fontWeight: 500 }}>
+                                  {p.country || 'Ghana'}
+                                </span>
+                              </span>
+                            </label>
+
+                            {assigned && (
+                              <div className="role-and-status">
+                                <select
+                                  className="form-control role-select"
+                                  value={assigned.role_id}
+                                  onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'role_id', parseInt(e.target.value, 10))}
+                                >
+                                  {roles.map(r => (
+                                    <option key={r.id} value={r.id}>{r.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+
+                          {assigned && (
+                            <div className="platform-dates-row">
+                              <div className="date-input-group">
+                                <label>Start Date</label>
+                                <input
+                                  type="date"
+                                  className="form-control date-input"
+                                  value={assigned.start_date || ''}
+                                  onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'start_date', e.target.value)}
+                                  required
+                                />
+                              </div>
+                              <div className="date-input-group">
+                                <label>End Date</label>
+                                <input
+                                  type="date"
+                                  className="form-control date-input"
+                                  value={assigned.end_date || ''}
+                                  onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'end_date', e.target.value)}
+                                  required
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </form>
       </Modal>
 
@@ -642,6 +724,23 @@ export const UsersPage = () => {
             </div>
           </div>
 
+          <div className="form-group mt-3">
+            <label style={{ fontWeight: 600, color: '#1e293b' }}>Assigned Operating Country / Market</label>
+            <select
+              className="form-control"
+              value={editUser.country}
+              onChange={(e) => setEditUser({ ...editUser, country: e.target.value })}
+            >
+              {countries.map(c => (
+                <option key={c.id} value={c.name}>{c.name} ({c.code}) - {c.currency}</option>
+              ))}
+              <option value="ALL">All Countries / Universal</option>
+            </select>
+            <span style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
+              Assigning a country dynamically filters the platform selection below to platforms active in this market.
+            </span>
+          </div>
+
           <div className="form-divider" />
 
           <h4 className="platform-rbac-title">Manage Platform Authorizations & Date Windows</h4>
@@ -649,72 +748,110 @@ export const UsersPage = () => {
             Grant or revoke access, modify roles, and change the active date window per platform:
           </p>
 
-          <div className="platform-assign-rows">
-            {allPlatforms.map((p) => {
-              const assigned = editUser.platform_assignments.find(a => a.platform_id === p.id);
-              return (
-                <div key={p.id} className={`platform-assign-item ${assigned ? 'assigned' : ''}`}>
-                  <div className="platform-top-row">
-                    <label className="platform-checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={!!assigned}
-                        onChange={() => handleToggleEditPlatformAssignment(p.id)}
-                      />
-                      <span className="p-name"><strong>{p.name}</strong> ({p.code})</span>
-                    </label>
+          {(() => {
+            const countryFilter = editUser.country;
+            const displayedPlatforms = (countryFilter && countryFilter !== 'ALL')
+              ? allPlatforms.filter(p => (p.country || 'Ghana').toLowerCase() === countryFilter.toLowerCase())
+              : allPlatforms;
 
-                    {assigned && (
-                      <div className="role-and-status">
-                        <select
-                          className="form-control role-select"
-                          value={assigned.role_id}
-                          onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'role_id', parseInt(e.target.value, 10))}
-                        >
-                          {roles.map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
-                        <select
-                          className="form-control status-select"
-                          value={assigned.status || 'ACTIVE'}
-                          onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'status', e.target.value)}
-                        >
-                          <option value="ACTIVE">Access: ACTIVE</option>
-                          <option value="REVOKED">Access: REVOKED</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-
-                  {assigned && (
-                    <div className="platform-dates-row">
-                      <div className="date-input-group">
-                        <label>Start Date</label>
-                        <input
-                          type="date"
-                          className="form-control date-input"
-                          value={assigned.start_date || ''}
-                          onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'start_date', e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="date-input-group">
-                        <label>End Date</label>
-                        <input
-                          type="date"
-                          className="form-control date-input"
-                          value={assigned.end_date || ''}
-                          onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'end_date', e.target.value)}
-                          required
-                        />
-                      </div>
-                    </div>
+            return (
+              <>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#475569' }}>
+                    Available Platforms in {countryFilter === 'ALL' ? 'All Countries' : countryFilter} ({displayedPlatforms.length}):
+                  </span>
+                  {allPlatforms.length > displayedPlatforms.length && (
+                    <button
+                      type="button"
+                      className="btn-link"
+                      style={{ fontSize: '0.75rem', background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer' }}
+                      onClick={() => setEditUser({ ...editUser, country: 'ALL' })}
+                    >
+                      Show platforms from all countries
+                    </button>
                   )}
                 </div>
-              );
-            })}
-          </div>
+
+                <div className="platform-assign-rows">
+                  {displayedPlatforms.length === 0 ? (
+                    <div style={{ padding: '1rem', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '0.85rem' }}>
+                      No platforms found operating in {countryFilter}. Please add platforms for this country in Platforms Config or switch country.
+                    </div>
+                  ) : (
+                    displayedPlatforms.map((p) => {
+                      const assigned = editUser.platform_assignments.find(a => a.platform_id === p.id);
+                      return (
+                        <div key={p.id} className={`platform-assign-item ${assigned ? 'assigned' : ''}`}>
+                          <div className="platform-top-row">
+                            <label className="platform-checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={!!assigned}
+                                onChange={() => handleToggleEditPlatformAssignment(p.id)}
+                              />
+                              <span className="p-name">
+                                <strong>{p.name}</strong> ({p.code})
+                                <span style={{ marginLeft: '8px', padding: '1px 6px', borderRadius: '4px', fontSize: '0.72rem', background: '#e2e8f0', color: '#475569', fontWeight: 500 }}>
+                                  {p.country || 'Ghana'}
+                                </span>
+                              </span>
+                            </label>
+
+                            {assigned && (
+                              <div className="role-and-status">
+                                <select
+                                  className="form-control role-select"
+                                  value={assigned.role_id}
+                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'role_id', parseInt(e.target.value, 10))}
+                                >
+                                  {roles.map(r => (
+                                    <option key={r.id} value={r.id}>{r.name}</option>
+                                  ))}
+                                </select>
+                                <select
+                                  className="form-control status-select"
+                                  value={assigned.status || 'ACTIVE'}
+                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'status', e.target.value)}
+                                >
+                                  <option value="ACTIVE">Access: ACTIVE</option>
+                                  <option value="REVOKED">Access: REVOKED</option>
+                                </select>
+                              </div>
+                            )}
+                          </div>
+
+                          {assigned && (
+                            <div className="platform-dates-row">
+                              <div className="date-input-group">
+                                <label>Start Date</label>
+                                <input
+                                  type="date"
+                                  className="form-control date-input"
+                                  value={assigned.start_date || ''}
+                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'start_date', e.target.value)}
+                                  required
+                                />
+                              </div>
+                              <div className="date-input-group">
+                                <label>End Date</label>
+                                <input
+                                  type="date"
+                                  className="form-control date-input"
+                                  value={assigned.end_date || ''}
+                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'end_date', e.target.value)}
+                                  required
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </form>
       </Modal>
 

@@ -209,7 +209,7 @@ export const db = {
       const usersCol = rDb.collection('admin_users');
       const nextId = await getNextId('admin_users');
       const now = new Date();
-      // VALUES (?, ?, ?, ?, ?) -> name, email, username, password_hash, status
+      // VALUES (?, ?, ?, ?, ?, ?) -> name, email, username, password_hash, status, country
       const userDoc = {
         id: nextId,
         name: params[0],
@@ -217,6 +217,7 @@ export const db = {
         username: params[2],
         password_hash: params[3],
         status: params[4] || 'ACTIVE',
+        country: params[5] || 'Ghana',
         last_login_at: null,
         created_at: now,
         updated_at: now,
@@ -254,22 +255,21 @@ export const db = {
         return { changes: 1 };
       }
 
-      // Profile edit: name, email, username, status, updated_at
+      // Profile edit: name, email, username, status, country, updated_at
       if (lowerSql.includes('set name = ?')) {
-        // [name, email, username, status, id]
-        const idNum = parseInt(params[4], 10);
-        await usersCol.updateOne(
-          { id: idNum },
-          {
-            $set: {
-              name: params[0],
-              email: params[1],
-              username: params[2],
-              status: params[3],
-              updated_at: now
-            }
-          }
-        );
+        const hasCountry = lowerSql.includes('country = ?') || lowerSql.includes('country = coalesce');
+        const idNum = parseInt(params[params.length - 1], 10);
+        const setDoc = {
+          name: params[0],
+          email: params[1],
+          username: params[2],
+          status: params[3],
+          updated_at: now
+        };
+        if (hasCountry && params.length >= 6) {
+          setDoc.country = params[4];
+        }
+        await usersCol.updateOne({ id: idNum }, { $set: setDoc });
         return { changes: 1 };
       }
     }

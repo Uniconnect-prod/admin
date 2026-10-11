@@ -14,6 +14,7 @@ import { QuizzesListPage } from '../pages/quizzes/QuizzesListPage';
 import { QuizUploadPage } from '../pages/quizzes/QuizUploadPage';
 import { UsersPage } from '../pages/users/UsersPage';
 import { PlatformsPage } from '../pages/platforms/PlatformsPage';
+import { CountriesPage } from '../pages/countries/CountriesPage';
 import { ActivityLogsPage } from '../pages/activity/ActivityLogsPage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
 
@@ -90,6 +91,16 @@ export const AppRouter = () => {
           element={
             <SuperAdminGuard>
               <PlatformsPage />
+            </SuperAdminGuard>
+          }
+        />
+
+        {/* Country Management (Super Admin) */}
+        <Route
+          path="/countries"
+          element={
+            <SuperAdminGuard>
+              <CountriesPage />
             </SuperAdminGuard>
           }
         />

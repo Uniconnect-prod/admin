@@ -11,6 +11,7 @@ import quizRoutes from './quizRoutes.js';
 import auditRoutes from './auditRoutes.js';
 import exportRoutes from './exportRoutes.js';
 import settingsRoutes from './settingsRoutes.js';
+import countryRoutes from './countryRoutes.js';
 
 const router = Router();
 
@@ -18,6 +19,7 @@ router.use('/auth', authRoutes);
 router.use('/platforms', platformRoutes);
 router.use('/platform-management', platformManagementRoutes);
 router.use('/users', userRoutes);
+router.use('/countries', countryRoutes);
 router.use('/subscribers', subscriberRoutes);
 router.use('/renewals', renewalRoutes);
 router.use('/churn', churnRoutes);

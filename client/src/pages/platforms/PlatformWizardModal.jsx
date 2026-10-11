@@ -78,6 +78,7 @@ export const PlatformWizardModal = ({
   const [timezone, setTimezone] = useState('Africa/Accra');
   const [accentColor, setAccentColor] = useState('#00E5FF');
   const [enabledModules, setEnabledModules] = useState(['Subscribers', 'Renewals', 'Churn', 'Revenue', 'Reports']);
+  const [countriesList, setCountriesList] = useState([]);
 
   // Step 2: MongoDB Connection
   const [useDefaultCluster, setUseDefaultCluster] = useState(true);
@@ -128,6 +129,35 @@ export const PlatformWizardModal = ({
 
   // Saved Platform ID (assigned once created or from initialPlatform)
   const [platformId, setPlatformId] = useState(initialPlatform?.id || null);
+
+  // Fetch active countries from database
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await api.get('/countries?status=ACTIVE');
+        if (res.data?.success && res.data.data.length > 0) {
+          setCountriesList(res.data.data);
+          if (!initialPlatform?.country) {
+            setCountry(res.data.data[0].name);
+            if (res.data.data[0].default_timezone) {
+              setTimezone(res.data.data[0].default_timezone);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load countries for wizard:', err);
+      }
+    };
+    fetchCountries();
+  }, [initialPlatform]);
+
+  const handleCountryChange = (selectedName) => {
+    setCountry(selectedName);
+    const matched = countriesList.find(c => c.name.toLowerCase() === selectedName.toLowerCase());
+    if (matched && matched.default_timezone) {
+      setTimezone(matched.default_timezone);
+    }
+  };
 
   // Initialize or reset form state
   useEffect(() => {
@@ -569,14 +599,30 @@ export const PlatformWizardModal = ({
 
               <div className="form-grid-2 mt-3">
                 <div className="form-group">
-                  <label>Country / Market</label>
-                  <input
-                    type="text"
+                  <label className="required-label">Country / Market</label>
+                  <select
                     className="form-control"
-                    placeholder="e.g. Ghana"
                     value={country}
-                    onChange={(e) => setCountry(e.target.value)}
-                  />
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                  >
+                    {countriesList.length > 0 ? (
+                      countriesList.map(c => (
+                        <option key={c.id} value={c.name}>
+                          {c.name} ({c.code}) - {c.currency}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Ghana">Ghana (GH) - GHS</option>
+                        <option value="Nigeria">Nigeria (NG) - NGN</option>
+                        <option value="Kenya">Kenya (KE) - KES</option>
+                        <option value="South Africa">South Africa (ZA) - ZAR</option>
+                      </>
+                    )}
+                  </select>
+                  <small className="form-hint">
+                    Select the operational country configured under Country Settings.
+                  </small>
                 </div>
 
                 <div className="form-group">
