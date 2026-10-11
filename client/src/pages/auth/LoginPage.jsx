@@ -5,6 +5,7 @@ import {
   Zap, Film, Gamepad2, Music, HelpCircle, ChevronLeft, ChevronRight, PlayCircle
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { PlatformLogo } from '../../components/common/PlatformBadge';
 import api from '../../services/api';
 import './LoginPage.scss';
 
