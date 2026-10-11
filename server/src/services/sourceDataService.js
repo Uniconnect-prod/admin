@@ -157,52 +157,42 @@ export const sourceDataService = {
     let dailyBreakdown = [];
 
     try {
-      // 1. RENEWALS: Today's renewals if range is 'today', otherwise period renewals
-      const renewalQuery = {
-        $or: [
-          { command: 'NotifyRenewal', subscriptionStatus: 'A' },
-          { command: 'NotifyRenewal', normalizedStatus: 'renewal' },
-          { command: 'NotifyRenewal' },
-          { lifecycle: { $regex: '^REN' }, status: 'A' }
-        ]
-      };
+      // 1. RENEWALS: Count only successful/billed renewals (status A, chargeAmount > 0, excluding failed/insufficient balance)
+      const isGhGamezone = dbName === 'ghanagameium' || platConfig?.code === 'GHANAGAMEIUM' || platConfig?.code === 'GHGAMEZONE';
+      const renewalQuery = isGhGamezone
+        ? {
+            $or: [
+              { lifecycle: /^REN/, status: 'A' },
+              { command: 'NotifyRenewal', chargeAmount: { $gt: 0 } }
+            ]
+          }
+        : {
+            command: 'NotifyRenewal',
+            chargeAmount: { $gt: 0 },
+            $or: [
+              { subscriptionStatus: 'A' },
+              { normalizedStatus: 'renewal' },
+              { reason: /Success/i },
+              { chargeAmount: { $gt: 0 } }
+            ]
+          };
+
       if (range === 'today') {
         renewalQuery.createdAt = { $gte: todayStart, $lte: todayEnd };
       } else if (range !== 'all' && startDate && endDate) {
         renewalQuery.createdAt = { $gte: startDate, $lte: endDate };
       }
 
+      // 2. SUBSCRIBERS: Authoritative counts from production users/subscriptions collection
+      const userColName = isGhGamezone ? 'subscriptions' : 'users';
+      const userCol = getSourceCol(dbName, userColName);
+      const activeFilter = userColName === 'subscriptions' ? { status: 'active' } : { subscriptionStatus: 'active' };
+
       // Execute live metrics and authoritative business report concurrently
-      const [renewalsCount, totalSubsAgg, activeAgg, businessReport] = await Promise.all([
+      const [renewalsCount, totalSubsCount, activeSubsCount, businessReport] = await Promise.all([
         sdpCol.countDocuments(renewalQuery),
-        sdpCol.aggregate([
-          { $match: { msisdn: { $nin: [null, '', undefined] } } },
-          { $group: { _id: '$msisdn' } },
-          { $count: 'total' }
-        ]).toArray(),
-        sdpCol.aggregate([
-          { $match: { msisdn: { $nin: [null, '', undefined] } } },
-          { $sort: { createdAt: -1 } },
-          {
-            $group: {
-              _id: '$msisdn',
-              latestStatus: { $first: { $ifNull: ['$subscriptionStatus', '$status'] } },
-              latestCmd: { $first: '$command' },
-              latestLifecycle: { $first: { $ifNull: ['$subscriberLifeCycle', '$lifecycle'] } },
-              latestNormStatus: { $first: '$normalizedStatus' },
-              latestCreatedAt: { $first: '$createdAt' }
-            }
-          },
-          {
-            $match: {
-              latestStatus: 'A',
-              latestLifecycle: { $ne: 'UNSUB1' },
-              latestCmd: { $ne: 'NotifyDeActivation' },
-              latestNormStatus: { $ne: 'churn' }
-            }
-          },
-          { $count: 'activeCount' }
-        ]).toArray(),
+        userCol.countDocuments({}),
+        userCol.countDocuments(activeFilter),
         sourceDataService.getSubscriptionBusinessReport({
           dbName,
           sdpColName,
@@ -214,8 +204,8 @@ export const sourceDataService = {
       ]);
 
       todayRenewals = renewalsCount || 0;
-      totalSubscribers = totalSubsAgg[0]?.total || 0;
-      activeSubscribers = activeAgg[0]?.activeCount || 0;
+      totalSubscribers = totalSubsCount || 0;
+      activeSubscribers = activeSubsCount || 0;
       dailyBreakdown = businessReport.rows || [];
 
       // Authoritative sync: KPI grossRevenue matches businessReport totals for selected date range
