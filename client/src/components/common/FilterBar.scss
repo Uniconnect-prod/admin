@@ -1,0 +1,99 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.enterprise-filter-bar {
+  padding: 18px 20px;
+  margin-bottom: 20px;
+
+  .filter-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+
+    .filter-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+      align-items: flex-end;
+
+      @include mobile {
+        grid-template-columns: 1fr;
+      }
+
+      .filter-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+
+        label {
+          font-size: 12px;
+          font-weight: 600;
+          color: $text-secondary;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+
+        .form-control {
+          padding: 8px 11px;
+          font-size: 13px;
+          border-radius: $radius-md;
+          border: 1px solid $border-medium;
+          background-color: #ffffff;
+          color: $text-primary;
+
+          &:focus {
+            border-color: $primary;
+          }
+        }
+
+        &.search-field {
+          grid-column: span 1;
+          min-width: 220px;
+
+          .search-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+
+            .search-icon {
+              position: absolute;
+              left: 10px;
+              color: $text-light;
+              pointer-events: none;
+            }
+
+            .search-control {
+              padding-left: 32px;
+            }
+          }
+        }
+      }
+    }
+
+    .filter-actions-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding-top: 12px;
+      border-top: 1px solid $border-light;
+
+      .action-buttons-left, .action-buttons-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .spin-icon {
+        animation: spin 1s linear infinite;
+      }
+    }
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+

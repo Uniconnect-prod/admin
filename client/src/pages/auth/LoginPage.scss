@@ -1,0 +1,465 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.login-container {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  background-color: $bg-app;
+
+  // Automated Showcase Slideshow Carousel (Left Hero)
+  .login-hero-carousel {
+    flex: 1.15;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 48px 56px;
+    background: #0d1117;
+    min-height: 100vh;
+
+    @include tablet {
+      display: none;
+    }
+
+    // Dynamic background image layers with cross-fade
+    .carousel-bg-slide {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-size: cover;
+      background-position: center;
+      opacity: 0;
+      transform: scale(1.04);
+      transition: opacity 1.2s cubic-bezier(0.4, 0, 0.2, 1), transform 8s linear;
+      z-index: 1;
+
+      &.active {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    // Sleek multi-stage black gradient layer
+    .carousel-black-gradient {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(
+        180deg,
+        rgba(10, 12, 16, 0.78) 0%,
+        rgba(10, 12, 16, 0.45) 30%,
+        rgba(8, 10, 14, 0.88) 72%,
+        rgba(5, 6, 8, 0.98) 100%
+      );
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    // Ambient MTN Yellow Accent Glow in corner
+    .carousel-glow-accent {
+      position: absolute;
+      bottom: -60px;
+      left: -60px;
+      width: 380px;
+      height: 380px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 204, 0, 0.18) 0%, rgba(255, 204, 0, 0) 70%);
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    // Carousel Foreground Content
+    .hero-carousel-content {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100%;
+      max-width: 540px;
+
+      // Brand Header Bar
+      .hero-brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+
+        .brand-titles {
+          h2 {
+            font-size: 21px;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            color: #ffffff;
+            margin: 0;
+          }
+
+          p {
+            font-size: 13px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.7);
+            margin: 2px 0 0 0;
+          }
+        }
+      }
+
+      // Center Platform Body with fade-in slide effect
+      .carousel-platform-body {
+        margin: auto 0;
+        padding: 40px 0 20px 0;
+        animation: carouselSlideFade 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+
+        .platform-meta-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 14px;
+          border-radius: $radius-full;
+          background: rgba(255, 204, 0, 0.16);
+          border: 1px solid rgba(255, 204, 0, 0.4);
+          color: #ffcc00;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          margin-bottom: 20px;
+          backdrop-filter: blur(8px);
+
+          .pill-icon {
+            color: #ffcc00;
+          }
+
+          .pill-separator {
+            opacity: 0.5;
+          }
+
+          .pill-status {
+            color: #ffffff;
+            font-weight: 600;
+          }
+        }
+
+        .platform-title {
+          font-size: 44px;
+          font-weight: 900;
+          line-height: 1.1;
+          letter-spacing: -0.03em;
+          color: #ffffff;
+          margin: 0 0 14px 0;
+          text-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+        }
+
+        .platform-tagline {
+          font-size: 18px;
+          font-weight: 600;
+          line-height: 1.4;
+          color: #ffcc00;
+          margin: 0 0 14px 0;
+        }
+
+        .platform-description {
+          font-size: 14.5px;
+          line-height: 1.65;
+          color: rgba(255, 255, 255, 0.82);
+          max-width: 480px;
+          margin: 0 0 28px 0;
+        }
+
+        // Live Platform Metrics Grid
+        .platform-stats-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          max-width: 480px;
+
+          .stat-card {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: $radius-md;
+            padding: 12px 14px;
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: transform $transition-fast, border-color $transition-fast;
+
+            &:hover {
+              transform: translateY(-2px);
+              border-color: rgba(255, 204, 0, 0.5);
+            }
+
+            .stat-value {
+              font-size: 17px;
+              font-weight: 800;
+              color: #ffffff;
+              letter-spacing: -0.02em;
+            }
+
+            .stat-label {
+              font-size: 11px;
+              font-weight: 600;
+              color: rgba(255, 255, 255, 0.6);
+              text-transform: uppercase;
+              letter-spacing: 0.03em;
+            }
+          }
+        }
+      }
+
+      // Bottom Navigation & Indicators
+      .carousel-controls-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 24px;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+
+        .carousel-dots {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+
+          .dot {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+
+            .dot-inner {
+              display: block;
+              width: 10px;
+              height: 4px;
+              border-radius: 4px;
+              background: rgba(255, 255, 255, 0.3);
+              transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            &.active .dot-inner {
+              width: 28px;
+              background: #ffcc00;
+              box-shadow: 0 0 10px rgba(255, 204, 0, 0.6);
+            }
+
+            &:hover:not(.active) .dot-inner {
+              background: rgba(255, 255, 255, 0.6);
+            }
+          }
+        }
+
+        .carousel-nav-arrows {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+
+          .slide-counter {
+            font-size: 12px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.6);
+            letter-spacing: 0.05em;
+          }
+
+          .nav-arrow-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all $transition-fast;
+
+            &:hover {
+              background: #ffcc00;
+              color: #000000;
+              border-color: #ffcc00;
+              transform: scale(1.08);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @keyframes carouselSlideFade {
+    0% {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .login-form-wrapper {
+    flex: 1.1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+
+    .login-box {
+      width: 100%;
+      max-width: 480px;
+      padding: 40px 36px;
+      box-shadow: $shadow-xl;
+      border: 1px solid $border-light;
+      background: #ffffff;
+      border-radius: $radius-xl;
+
+      .login-header {
+        margin-bottom: 24px;
+
+        .login-logo-mobile {
+          display: none;
+          margin-bottom: 14px;
+
+          @include tablet {
+            display: block;
+          }
+        }
+
+        h2 {
+          font-size: 24px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          color: $text-primary;
+        }
+
+        p {
+          font-size: 13.5px;
+          color: $text-muted;
+          margin-top: 4px;
+        }
+      }
+
+      .login-alert-error {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: $radius-md;
+        background-color: $color-danger-bg;
+        border: 1px solid $color-danger-border;
+        color: $color-danger-text;
+        font-size: 13px;
+        margin-bottom: 20px;
+
+        .alert-icon {
+          flex-shrink: 0;
+          margin-top: 1px;
+        }
+
+        .alert-text {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+
+          strong {
+            font-weight: 700;
+          }
+
+          .error-subtext {
+            font-size: 12px;
+            opacity: 0.9;
+            margin: 0;
+          }
+        }
+      }
+
+      .login-form {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+
+        .input-icon-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+
+          .input-icon {
+            position: absolute;
+            left: 12px;
+            color: $text-light;
+            pointer-events: none;
+          }
+
+          .with-icon {
+            padding-left: 38px;
+          }
+
+          .password-input {
+            padding-right: 38px;
+          }
+
+          .password-toggle-btn {
+            position: absolute;
+            right: 10px;
+            color: $text-light;
+            padding: 4px;
+
+            &:hover {
+              color: $text-primary;
+            }
+          }
+        }
+
+        .field-hint {
+          font-size: 11px;
+          color: $text-light;
+          margin-top: 2px;
+        }
+
+        .form-options {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 13px;
+
+          .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            color: $text-secondary;
+          }
+
+          .forgot-link {
+            color: $text-primary;
+            font-weight: 600;
+
+            &:hover {
+              text-decoration: underline;
+            }
+          }
+        }
+
+        .login-btn {
+          width: 100%;
+          padding: 12px;
+          font-size: 15px;
+          margin-top: 8px;
+          background: #ffcc00;
+          color: #000000;
+          font-weight: 800;
+          border: 1px solid #e6b800;
+
+          &:hover:not(:disabled) {
+            background: #e6b800;
+            box-shadow: 0 4px 14px rgba(255, 204, 0, 0.45);
+          }
+        }
+      }
+    }
+  }
+}

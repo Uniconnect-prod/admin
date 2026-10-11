@@ -1,0 +1,65 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.subscribers-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
+  .msisdn-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    .msisdn-number {
+      font-family: monospace;
+      font-weight: 600;
+      color: $text-primary;
+    }
+
+    .platform-tag {
+      font-size: 10px;
+      color: $primary;
+      font-weight: 600;
+    }
+  }
+
+  .offer-code-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    background: $bg-surface-secondary;
+    border: 1px solid $border-light;
+    border-radius: $radius-sm;
+    font-size: 12px;
+    font-family: monospace;
+    color: $text-secondary;
+  }
+
+  .lifecycle-tag {
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+
+    &.tag-active { color: $color-success; }
+    &.tag-new { color: $color-info; }
+    &.tag-grace { color: $color-warning; }
+    &.tag-churned { color: $color-danger; }
+    &.tag-suspended { color: $color-purple; }
+  }
+
+  .amount-cell {
+    font-weight: 700;
+    color: $text-primary;
+  }
+
+  .date-text {
+    font-size: 12.5px;
+    color: $text-muted;
+  }
+
+  .table-action-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+}
+

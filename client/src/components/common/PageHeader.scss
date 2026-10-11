@@ -1,0 +1,76 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.enterprise-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+
+  .header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .header-breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      color: $text-light;
+      margin-bottom: 4px;
+
+      .crumb-item {
+        color: $text-muted;
+
+        &.crumb-active {
+          color: $primary;
+          font-weight: 500;
+        }
+      }
+
+      .crumb-separator {
+        color: $text-light;
+      }
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+
+      .header-title {
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: $text-primary;
+      }
+
+      .header-platform-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: $radius-full;
+        background: $primary-light;
+        color: $primary;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid $primary-border;
+      }
+    }
+
+    .header-subtitle {
+      font-size: 13.5px;
+      color: $text-muted;
+    }
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+}
+

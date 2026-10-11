@@ -1,0 +1,354 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.subscriber-drawer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
+  .subscriber-quick-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    padding: 14px;
+    background: $bg-surface-secondary;
+    border-radius: $radius-lg;
+    border: 1px solid $border-light;
+
+    .quick-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+
+      .q-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: $text-muted;
+        text-transform: uppercase;
+      }
+
+      .lifecycle-badge {
+        font-size: 12px;
+        font-weight: 600;
+        color: $primary;
+      }
+
+      .charging-val {
+        font-size: 13.5px;
+        font-weight: 700;
+        color: $text-primary;
+      }
+
+      .renewal-count-tag {
+        font-size: 12px;
+        font-weight: 500;
+        color: $text-secondary;
+      }
+    }
+  }
+
+  // Drawer Tabs
+  .drawer-tabs {
+    display: flex;
+    border-bottom: 1px solid $border-light;
+    gap: 16px;
+
+    .drawer-tab {
+      padding: 8px 4px;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: $text-muted;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+
+      &:hover {
+        color: $text-primary;
+      }
+
+      &.active {
+        color: $primary;
+        border-bottom-color: $primary;
+        font-weight: 600;
+      }
+    }
+  }
+
+  .tab-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+
+      @include mobile {
+        grid-template-columns: 1fr;
+      }
+
+      .info-card {
+        padding: 16px;
+        background: #ffffff;
+        border: 1px solid $border-light;
+        border-radius: $radius-md;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+
+        .info-row {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+
+          .info-key {
+            font-size: 11px;
+            font-weight: 600;
+            color: $text-light;
+            text-transform: uppercase;
+          }
+
+          .info-value {
+            font-size: 13.5px;
+            color: $text-primary;
+
+            &.font-mono {
+              font-family: monospace;
+              font-weight: 600;
+            }
+
+            &.font-bold {
+              font-weight: 700;
+            }
+
+            &.text-success {
+              color: $color-success;
+            }
+          }
+        }
+      }
+    }
+
+    .churn-section {
+      margin-top: 8px;
+      padding: 16px;
+      background: $color-danger-bg;
+      border: 1px solid $color-danger-border;
+      border-radius: $radius-md;
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13.5px;
+        font-weight: 700;
+        margin-bottom: 10px;
+
+        &.text-danger {
+          color: $color-danger-text;
+        }
+      }
+
+      .churn-record-card {
+        background: #ffffff;
+        border: 1px solid $color-danger-border;
+        border-radius: $radius-sm;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+
+        .churn-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+
+          .churn-reason {
+            font-weight: 600;
+            font-size: 13px;
+            color: $color-danger;
+          }
+
+          .churn-date {
+            font-size: 11px;
+            color: $text-light;
+          }
+        }
+
+        .churn-offer {
+          font-size: 12px;
+          color: $text-muted;
+        }
+      }
+    }
+  }
+
+  // Renewal Events Timeline
+  .renewals-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    .renewal-event {
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid $border-light;
+      border-radius: $radius-md;
+      background: #ffffff;
+
+      .event-icon {
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      .event-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+
+        .event-top {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+
+          .event-amount {
+            font-weight: 700;
+            font-size: 13px;
+            color: $text-primary;
+          }
+
+          .event-time {
+            font-size: 11px;
+            color: $text-light;
+            margin-left: auto;
+          }
+        }
+
+        .event-desc {
+          font-size: 12.5px;
+          color: $text-secondary;
+
+          .fail-note {
+            color: $color-danger;
+            font-weight: 500;
+          }
+        }
+      }
+    }
+  }
+
+  // Transactions list
+  .txn-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    .txn-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 14px;
+      border: 1px solid $border-light;
+      border-radius: $radius-md;
+      background: #ffffff;
+
+      .txn-icon-col {
+        width: 36px;
+        height: 36px;
+        border-radius: $radius-md;
+        background: $primary-light;
+        color: $primary;
+        @include flex-center;
+      }
+
+      .txn-details-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+
+        .txn-id {
+          font-family: monospace;
+          font-size: 11.5px;
+          color: $text-muted;
+        }
+
+        .txn-desc {
+          font-size: 13px;
+          font-weight: 600;
+          color: $text-primary;
+        }
+
+        .txn-time {
+          font-size: 11px;
+          color: $text-light;
+        }
+      }
+
+      .txn-amount-col {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+
+        .txn-val {
+          font-size: 14px;
+          font-weight: 700;
+
+          &.text-success { color: $color-success; }
+          &.text-danger { color: $color-danger; }
+        }
+
+        .txn-status-tag {
+          font-size: 10px;
+          font-weight: 700;
+          color: $text-light;
+        }
+      }
+    }
+  }
+
+  // Activity list
+  .activity-feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    .act-item {
+      display: flex;
+      gap: 12px;
+      position: relative;
+
+      .act-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: $primary;
+        margin-top: 6px;
+      }
+
+      .act-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+
+        .act-event {
+          font-size: 13px;
+          font-weight: 600;
+          color: $text-primary;
+        }
+
+        .act-details {
+          font-size: 12px;
+          color: $text-muted;
+        }
+
+        .act-time {
+          font-size: 11px;
+          color: $text-light;
+        }
+      }
+    }
+  }
+}
+

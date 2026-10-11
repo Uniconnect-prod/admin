@@ -1,0 +1,50 @@
+@use '../../styles/variables' as *;
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid $border-light;
+  background: #ffffff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+
+  .header-info {
+    .drawer-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: $text-primary;
+    }
+
+    .drawer-subtitle {
+      font-size: 13px;
+      color: $text-muted;
+      margin-top: 2px;
+    }
+  }
+
+  .drawer-close-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: $radius-md;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: $text-muted;
+    transition: all 0.15s ease;
+
+    &:hover {
+      background-color: $bg-surface-secondary;
+      color: $text-primary;
+    }
+  }
+}
+
+.drawer-body {
+  padding: 24px;
+  flex: 1;
+  overflow-y: auto;
+}
+

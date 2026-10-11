@@ -1,0 +1,16 @@
+@use '../../styles/variables' as *;
+
+.chart-card {
+  display: flex;
+  flex-direction: column;
+
+  .chart-content {
+    width: 100%;
+    position: relative;
+
+    .recharts-responsive-container {
+      width: 100% !important;
+    }
+  }
+}
+
