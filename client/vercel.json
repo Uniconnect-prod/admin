@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://reporting-dash-1a7a.onrender.com/api/:path*"
+      "destination": "https://reporting-dash-kxeu.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",
