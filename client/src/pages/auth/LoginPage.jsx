@@ -5,8 +5,7 @@ import {
   Zap, Film, Gamepad2, Music, HelpCircle, ChevronLeft, ChevronRight, PlayCircle
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { PlatformLogo, PLATFORM_META } from '../../components/common/PlatformBadge';
-import axios from 'axios';
+import api from '../../services/api';
 import './LoginPage.scss';
 
 // Fallback platforms showcase data
@@ -95,7 +94,7 @@ export const LoginPage = () => {
   useEffect(() => {
     const fetchShowcase = async () => {
       try {
-        const res = await axios.get('/api/platforms/showcase');
+        const res = await api.get('/platforms/showcase');
         if (res.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
           const iconMap = {
             GHSNAPFLIX: Film,
