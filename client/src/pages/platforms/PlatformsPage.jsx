@@ -1,51 +1,58 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Layers, Plus, Edit, ToggleLeft, ToggleRight, Check, ShieldCheck } from 'lucide-react';
+import {
+  Layers,
+  Plus,
+  Edit,
+  Database,
+  CheckCircle2,
+  AlertCircle,
+  Zap,
+  Globe,
+  Server,
+  Power,
+  ShieldCheck,
+  Search,
+  Filter,
+  Check,
+  Loader2,
+  Settings2,
+  RefreshCw
+} from 'lucide-react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/common/PageHeader';
 import { DataTable } from '../../components/common/DataTable';
 import { StatusBadge } from '../../components/common/StatusBadge';
-import { Modal } from '../../components/common/Modal';
+import { PlatformWizardModal } from './PlatformWizardModal';
 import './PlatformsPage.scss';
 
 export const PlatformsPage = () => {
-  const { user } = useAuth();
+  const { user, refreshPlatforms } = useAuth();
   const [platforms, setPlatforms] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
+  // Search & Filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
+  // Wizard modal state
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
 
-  const availableModuleList = [
-    'Subscribers',
-    'Churn',
-    'Revenue',
-    'Quiz',
-    'Reports'
-  ];
-
-  const [newPlatform, setNewPlatform] = useState({
-    name: '',
-    code: '',
-    description: '',
-    country: '',
-    mongo_uri: '',
-    database_name: '',
-    collection_sdp: '',
-    collection_callback: '',
-    enabled_modules: ['Subscribers', 'Churn', 'Revenue', 'Reports']
-  });
+  // Quick inline test connection state: { [platformId]: { testing: boolean, result: object } }
+  const [connTestStates, setConnTestStates] = useState({});
+  const [notification, setNotification] = useState(null);
 
   const fetchPlatforms = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await api.get('/platforms');
+      const res = await api.get('/platform-management');
       if (res.data?.success) {
         setPlatforms(res.data.data);
       }
     } catch (err) {
       console.error('Failed to load platforms:', err);
+      showNotification('error', 'Failed to retrieve platform configurations.');
     } finally {
       setLoading(false);
     }
@@ -55,379 +62,368 @@ export const PlatformsPage = () => {
     fetchPlatforms();
   }, [fetchPlatforms]);
 
-  const handleToggleModuleInEdit = (modName) => {
-    if (!selectedPlatform) return;
-    const current = selectedPlatform.enabled_modules || [];
-    const exists = current.includes(modName);
-    const updated = exists ? current.filter(m => m !== modName) : [...current, modName];
-    setSelectedPlatform({ ...selectedPlatform, enabled_modules: updated });
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000);
   };
 
-  const handleToggleModuleInCreate = (modName) => {
-    const current = newPlatform.enabled_modules || [];
-    const exists = current.includes(modName);
-    const updated = exists ? current.filter(m => m !== modName) : [...current, modName];
-    setNewPlatform({ ...newPlatform, enabled_modules: updated });
-  };
+  // Inline connection test for quick health verification
+  const handleQuickTest = async (platform) => {
+    const pId = platform.id;
+    setConnTestStates(prev => ({
+      ...prev,
+      [pId]: { testing: true, result: null }
+    }));
 
-  const handleSaveEditPlatform = async () => {
     try {
-      await api.put(`/platforms/${selectedPlatform.id}`, {
-        name: selectedPlatform.name,
-        description: selectedPlatform.description,
-        enabled_modules: selectedPlatform.enabled_modules,
-        status: selectedPlatform.status,
-        country: selectedPlatform.country,
-        mongo_uri: selectedPlatform.mongo_uri,
-        database_name: selectedPlatform.database_name,
-        collection_sdp: selectedPlatform.collection_sdp,
-        collection_callback: selectedPlatform.collection_callback
-      });
-      alert('Platform configuration saved successfully.');
-      setEditModalOpen(false);
-      fetchPlatforms();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to update platform.');
-    }
-  };
-
-  const handleCreatePlatform = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await api.post('/platforms', newPlatform);
+      const res = await api.post(`/platform-management/${pId}/test-connection`);
       if (res.data?.success) {
-        alert('Platform registered successfully.');
-        setCreateModalOpen(false);
-        setNewPlatform({
-          name: '',
-          code: '',
-          description: '',
-          country: '',
-          mongo_uri: '',
-          database_name: '',
-          collection_sdp: '',
-          collection_callback: '',
-          enabled_modules: ['Subscribers', 'Churn', 'Revenue', 'Reports']
-        });
+        setConnTestStates(prev => ({
+          ...prev,
+          [pId]: { testing: false, result: res.data.data }
+        }));
+        showNotification('success', `Connection to '${platform.name}' verified (${res.data.data.latencyMs}ms).`);
         fetchPlatforms();
+      } else {
+        setConnTestStates(prev => ({
+          ...prev,
+          [pId]: { testing: false, result: { success: false, error: res.data?.message } }
+        }));
+        showNotification('error', `Connection test failed for '${platform.name}'.`);
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to create platform.');
+      setConnTestStates(prev => ({
+        ...prev,
+        [pId]: { testing: false, result: { success: false, error: err.message } }
+      }));
+      showNotification('error', `Connection error: ${err.message}`);
     }
   };
+
+  // Toggle Activate / Disable
+  const handleToggleStatus = async (platform) => {
+    const isCurrentlyActive = platform.status === 'ACTIVE';
+    const action = isCurrentlyActive ? 'disable' : 'activate';
+    const actionLabel = isCurrentlyActive ? 'Disable' : 'Activate';
+
+    if (!window.confirm(`Are you sure you want to ${actionLabel.toLowerCase()} '${platform.name}' (${platform.code})?`)) {
+      return;
+    }
+
+    try {
+      const res = await api.post(`/platform-management/${platform.id}/${action}`);
+      if (res.data?.success) {
+        showNotification('success', res.data.message || `Platform status updated.`);
+        await fetchPlatforms();
+        if (refreshPlatforms) await refreshPlatforms();
+      }
+    } catch (err) {
+      showNotification('error', err.response?.data?.message || `Failed to ${action} platform.`);
+    }
+  };
+
+  // Filtered platforms
+  const filteredPlatforms = platforms.filter(p => {
+    const matchesSearch =
+      !searchQuery.trim() ||
+      (p.name && p.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (p.database_name && p.database_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (p.country && p.country.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      (p.status && p.status.toUpperCase() === statusFilter.toUpperCase());
+
+    return matchesSearch && matchesStatus;
+  });
+
+  // KPI summary metrics
+  const totalPlatformsCount = platforms.length;
+  const activePlatformsCount = platforms.filter(p => p.status === 'ACTIVE').length;
+  const connectedDatabasesCount = platforms.filter(p => p.connection?.status === 'CONNECTED' || p.status === 'ACTIVE').length;
+  const validatedCount = platforms.filter(p => p.validation?.status === 'PASSED').length;
 
   const columns = [
     {
-      header: 'Platform Name',
+      header: 'Platform',
       key: 'name',
       render: (row) => (
-        <div className="platform-name-col">
-          <strong>{row.name}</strong>
-          <span className="platform-code-tag">{row.code}</span>
+        <div className="platform-name-cell">
+          <div
+            className="platform-emblem"
+            style={{
+              backgroundColor: `${row.accent_color || '#00E5FF'}20`,
+              color: row.accent_color || '#00E5FF',
+              borderColor: `${row.accent_color || '#00E5FF'}40`
+            }}
+          >
+            {(row.code || 'PL').slice(0, 2)}
+          </div>
+          <div>
+            <div className="d-flex align-items-center gap-2">
+              <strong className="platform-title">{row.name}</strong>
+              <span className="platform-code-pill font-mono">{row.code}</span>
+            </div>
+            <span className="platform-desc-subtitle">{row.description || 'Enterprise reporting platform'}</span>
+          </div>
         </div>
       )
     },
     {
-      header: 'Country',
-      key: 'country',
-      render: (row) => <span className="platform-desc-text">{row.country || '—'}</span>
+      header: 'Database & Target',
+      key: 'database_name',
+      render: (row) => (
+        <div className="db-info-cell">
+          <div className="d-flex align-items-center gap-1 font-mono text-dark fw-bold">
+            <Database size={13} className="text-primary flex-shrink-0" />
+            <span>{row.connection?.database_name || row.database_name || row.name}</span>
+          </div>
+          <span className="text-muted small">
+            {row.collections?.sdp_logs ? `SDP: ${row.collections.sdp_logs}` : 'Standard Schema'}
+          </span>
+        </div>
+      )
     },
     {
-      header: 'Description',
-      key: 'description',
-      render: (row) => <span className="platform-desc-text">{row.description || '—'}</span>
+      header: 'Timezone / Market',
+      key: 'business_timezone',
+      render: (row) => (
+        <div className="tz-info-cell">
+          <div className="d-flex align-items-center gap-1">
+            <Globe size={13} className="text-muted" />
+            <span>{row.country || 'Ghana'}</span>
+          </div>
+          <span className="text-muted small font-mono">{row.business_timezone || 'Africa/Accra'}</span>
+        </div>
+      )
+    },
+    {
+      header: 'Connectivity',
+      key: 'connection_status',
+      render: (row) => {
+        const testState = connTestStates[row.id];
+        const isConnected = row.connection?.status === 'CONNECTED' || row.status === 'ACTIVE';
+
+        if (testState?.testing) {
+          return (
+            <span className="conn-status-tag testing">
+              <Loader2 size={12} className="spin-animation" />
+              Testing...
+            </span>
+          );
+        }
+
+        return (
+          <div className="d-flex align-items-center gap-2">
+            <span className={`conn-status-tag ${isConnected ? 'connected' : 'disconnected'}`}>
+              <span className="status-dot" />
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+            <button
+              type="button"
+              className="btn-quick-ping"
+              title="Test MongoDB Connection"
+              onClick={() => handleQuickTest(row)}
+            >
+              <Zap size={13} />
+            </button>
+          </div>
+        );
+      }
+    },
+    {
+      header: 'Config Status',
+      key: 'status',
+      render: (row) => {
+        const s = (row.status || 'DRAFT').toUpperCase();
+        return (
+          <span className={`config-status-badge ${s.toLowerCase()}`}>
+            {s === 'ACTIVE' && <Check size={11} />}
+            {s}
+          </span>
+        );
+      }
     },
     {
       header: 'Enabled Modules',
       key: 'enabled_modules',
       render: (row) => (
-        <div className="modules-pill-grid">
-          {(row.enabled_modules || []).map((m) => (
-            <span key={m} className="module-badge">
-              <Check size={11} />
+        <div className="modules-compact-grid">
+          {(row.enabled_modules || []).slice(0, 3).map((m) => (
+            <span key={m} className="module-compact-chip">
               {m}
             </span>
           ))}
+          {(row.enabled_modules || []).length > 3 && (
+            <span className="module-more-chip">
+              +{(row.enabled_modules || []).length - 3}
+            </span>
+          )}
         </div>
       )
-    },
-    {
-      header: 'Status',
-      key: 'status',
-      render: (row) => <StatusBadge status={row.status} />
-    },
-    {
-      header: 'Created At',
-      key: 'created_at',
-      render: (row) => new Date(row.created_at).toLocaleDateString()
     },
     {
       header: 'Actions',
       key: 'actions',
       align: 'right',
       render: (row) => (
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => {
-            setSelectedPlatform(row);
-            setEditModalOpen(true);
-          }}
-        >
-          <Edit size={13} />
-          Configure Modules
-        </button>
+        <div className="platform-actions-group">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              setSelectedPlatform(row);
+              setWizardOpen(true);
+            }}
+            title="Configure Mappings & Rules"
+          >
+            <Settings2 size={13} />
+            Configure
+          </button>
+
+          <button
+            type="button"
+            className={`btn btn-sm ${row.status === 'ACTIVE' ? 'btn-outline-danger' : 'btn-outline-success'}`}
+            onClick={() => handleToggleStatus(row)}
+            title={row.status === 'ACTIVE' ? 'Disable Platform' : 'Activate Platform'}
+          >
+            <Power size={13} />
+            {row.status === 'ACTIVE' ? 'Disable' : 'Activate'}
+          </button>
+        </div>
       )
     }
   ];
 
   return (
-    <div className="platforms-page">
+    <div className="platforms-management-page fade-in">
       <PageHeader
-        title="Platform & Multi-Tenant Registry"
-        subtitle="Manage registered digital service platforms, API tenants and feature module flags (Super Admin)"
+        title="Multi-Platform & Dynamic Database Management"
+        subtitle="Connect, map, validate, and activate unlimited MongoDB databases directly from the dashboard without redeploying code."
         breadcrumbs={['Home', 'Platform Management', 'All Platforms']}
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => setCreateModalOpen(true)}>
-            <Plus size={15} />
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setSelectedPlatform(null);
+              setWizardOpen(true);
+            }}
+          >
+            <Plus size={16} />
             Add New Platform
           </button>
         }
       />
 
+      {notification && (
+        <div className={`platform-toast-banner ${notification.type} fade-in`}>
+          {notification.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          <span>{notification.message}</span>
+        </div>
+      )}
+
+      {/* KPI Stats Ribbon */}
+      <div className="platforms-metrics-ribbon mb-4">
+        <div className="metric-card">
+          <div className="metric-icon-box bg-primary-soft">
+            <Layers size={18} className="text-primary" />
+          </div>
+          <div>
+            <span className="metric-label">Total Platforms</span>
+            <span className="metric-val">{totalPlatformsCount}</span>
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-icon-box bg-success-soft">
+            <CheckCircle2 size={18} className="text-success" />
+          </div>
+          <div>
+            <span className="metric-label">Active & Serving</span>
+            <span className="metric-val text-success">{activePlatformsCount}</span>
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-icon-box bg-info-soft">
+            <Database size={18} className="text-info" />
+          </div>
+          <div>
+            <span className="metric-label">Live Databases</span>
+            <span className="metric-val">{connectedDatabasesCount}</span>
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-icon-box bg-purple-soft">
+            <ShieldCheck size={18} className="text-purple" />
+          </div>
+          <div>
+            <span className="metric-label">Validated Schemas</span>
+            <span className="metric-val text-purple">{validatedCount}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="table-controls-bar mb-3">
+        <div className="search-input-wrap">
+          <Search size={15} className="search-icon" />
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Search platforms by name, code, database..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        <div className="filters-group">
+          <select
+            className="form-control status-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">Active Only</option>
+            <option value="DRAFT">Draft</option>
+            <option value="NEEDS_VALIDATION">Needs Validation</option>
+            <option value="VALIDATING">Validating</option>
+            <option value="DISABLED">Disabled / Archived</option>
+          </select>
+
+          <button
+            type="button"
+            className="btn btn-secondary btn-icon-only"
+            title="Refresh List"
+            onClick={fetchPlatforms}
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Data Table */}
       <DataTable
         columns={columns}
-        data={platforms}
+        data={filteredPlatforms}
         loading={loading}
-        emptyMessage="No platforms registered."
+        emptyMessage="No matching platforms registered. Click 'Add New Platform' to register one."
       />
 
-      {/* Configure Modules Modal */}
-      <Modal
-        isOpen={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        title={selectedPlatform ? `Configure Modules for ${selectedPlatform.name}` : 'Platform Config'}
-        maxWidth="520px"
-        footer={
-          <>
-            <button type="button" className="btn btn-secondary" onClick={() => setEditModalOpen(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={handleSaveEditPlatform}>
-              Save Configuration
-            </button>
-          </>
-        }
-      >
-        {selectedPlatform && (
-          <div className="platform-config-modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: '10px' }}>
-            <p className="config-hint">
-              Enable or disable specific reporting and content modules for this platform. Changes dynamically update navigation and dashboard layout for users on this platform.
-            </p>
-
-            <div className="form-group mt-3">
-              <label>Country</label>
-              <input
-                type="text"
-                className="form-control"
-                value={selectedPlatform.country || ''}
-                onChange={(e) => setSelectedPlatform({ ...selectedPlatform, country: e.target.value })}
-              />
-            </div>
-            <div className="form-group mt-3">
-              <label>MongoDB URI</label>
-              <input
-                type="text"
-                className="form-control"
-                value={selectedPlatform.mongo_uri || ''}
-                onChange={(e) => setSelectedPlatform({ ...selectedPlatform, mongo_uri: e.target.value })}
-              />
-            </div>
-            <div className="form-group mt-3">
-              <label>Database Name</label>
-              <input
-                type="text"
-                className="form-control"
-                value={selectedPlatform.database_name || ''}
-                onChange={(e) => setSelectedPlatform({ ...selectedPlatform, database_name: e.target.value })}
-              />
-            </div>
-            <div className="form-group mt-3">
-              <label>SDP Logs Collection</label>
-              <input
-                type="text"
-                className="form-control"
-                value={selectedPlatform.collection_sdp || ''}
-                onChange={(e) => setSelectedPlatform({ ...selectedPlatform, collection_sdp: e.target.value })}
-              />
-            </div>
-            <div className="form-group mt-3 mb-4">
-              <label>Callback Logs Collection</label>
-              <input
-                type="text"
-                className="form-control"
-                value={selectedPlatform.collection_callback || ''}
-                onChange={(e) => setSelectedPlatform({ ...selectedPlatform, collection_callback: e.target.value })}
-              />
-            </div>
-
-            <label className="mod-label mt-2 d-block">Enabled Modules:</label>
-            <div className="module-toggle-list">
-              {availableModuleList.map((m) => {
-                const isEnabled = (selectedPlatform.enabled_modules || []).includes(m);
-                return (
-                  <div key={m} className={`module-toggle-row ${isEnabled ? 'enabled' : ''}`}>
-                    <div className="mod-info">
-                      <strong>{m} Module</strong>
-                      <span>{m === 'Quiz' ? 'Trivia creation, question banking, and rewards' : `${m} metrics and analytics`}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="mod-toggle-btn"
-                      onClick={() => handleToggleModuleInEdit(m)}
-                    >
-                      {isEnabled ? (
-                        <ToggleRight size={28} className="toggle-on text-primary" />
-                      ) : (
-                        <ToggleLeft size={28} className="toggle-off text-muted" />
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Create New Platform Modal */}
-      <Modal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        title="Register New Digital Platform"
-        maxWidth="540px"
-        footer={
-          <>
-            <button type="button" className="btn btn-secondary" onClick={() => setCreateModalOpen(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={handleCreatePlatform}>
-              Register Platform
-            </button>
-          </>
-        }
-      >
-        <form onSubmit={handleCreatePlatform} className="create-platform-form">
-          <div className="form-group">
-            <label>Platform Display Name</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="e.g. GHLearn Portal"
-              value={newPlatform.name}
-              onChange={(e) => setNewPlatform({ ...newPlatform, name: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Unique Platform Code</label>
-            <input
-              type="text"
-              className="form-control font-mono"
-              placeholder="e.g. GHLEARN"
-              value={newPlatform.code}
-              onChange={(e) => setNewPlatform({ ...newPlatform, code: e.target.value.toUpperCase() })}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Description</label>
-            <textarea
-              rows={2}
-              className="form-control"
-              placeholder="Brief description of service offerings..."
-              value={newPlatform.description}
-              onChange={(e) => setNewPlatform({ ...newPlatform, description: e.target.value })}
-            />
-          </div>
-
-          <div className="form-group mt-2">
-            <label>Country</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="e.g. Ghana"
-              value={newPlatform.country}
-              onChange={(e) => setNewPlatform({ ...newPlatform, country: e.target.value })}
-            />
-          </div>
-
-          <div className="form-group mt-2">
-            <label>MongoDB URI</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="mongodb://..."
-              value={newPlatform.mongo_uri}
-              onChange={(e) => setNewPlatform({ ...newPlatform, mongo_uri: e.target.value })}
-            />
-          </div>
-
-          <div className="form-group mt-2">
-            <label>Database Name</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="e.g. ghanagameium"
-              value={newPlatform.database_name}
-              onChange={(e) => setNewPlatform({ ...newPlatform, database_name: e.target.value })}
-            />
-          </div>
-
-          <div className="form-group mt-2">
-            <label>SDP Logs Collection</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="e.g. sdplogs"
-              value={newPlatform.collection_sdp}
-              onChange={(e) => setNewPlatform({ ...newPlatform, collection_sdp: e.target.value })}
-            />
-          </div>
-
-          <div className="form-group mt-2">
-            <label>Callback Logs Collection</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="e.g. ghanacallbacklogs"
-              value={newPlatform.collection_callback}
-              onChange={(e) => setNewPlatform({ ...newPlatform, collection_callback: e.target.value })}
-            />
-          </div>
-
-          <div className="form-divider" />
-          <label className="mod-label">Initial Enabled Modules:</label>
-          <div className="modules-checkbox-grid">
-            {availableModuleList.map((m) => {
-              const checked = (newPlatform.enabled_modules || []).includes(m);
-              return (
-                <label key={m} className="mod-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => handleToggleModuleInCreate(m)}
-                  />
-                  <span>{m}</span>
-                </label>
-              );
-            })}
-          </div>
-        </form>
-      </Modal>
+      {/* Comprehensive Multi-Step Add/Edit Platform Wizard */}
+      <PlatformWizardModal
+        isOpen={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        initialPlatform={selectedPlatform}
+        onSuccess={() => {
+          showNotification('success', 'Platform configuration saved successfully.');
+          fetchPlatforms();
+          if (refreshPlatforms) refreshPlatforms();
+        }}
+      />
     </div>
   );
 };
-

@@ -45,14 +45,24 @@ export async function getPlatformConfig(platformIdOrCode) {
     }
     const plat = await rDb.collection('admin_platforms').findOne(query);
     if (plat) {
+      const resolvedDbName = plat.connection?.database_name || plat.database_name || 'ghsuperwinings';
+      const resolvedSdpCol = plat.collections?.sdp_logs || plat.collection_sdp || 'sdplog';
+      const resolvedCallbackCol = plat.collections?.callbacks || plat.collection_callback || 'ghanacallbacklogs';
+      const resolvedSubCol = plat.collections?.subscribers || (resolvedDbName === 'ghanagameium' ? 'subscriptions' : 'users');
+
       return {
         id: plat.id,
         code: plat.code,
         name: plat.name,
-        dbName: plat.database_name || plat.name || 'ghsuperwinings',
-        sdpColName: plat.collection_sdp || 'sdplog',
-        callbackColName: plat.collection_callback || 'ghanacallbacklogs',
-        mongoUri: plat.mongo_uri || ''
+        dbName: resolvedDbName,
+        sdpColName: resolvedSdpCol,
+        callbackColName: resolvedCallbackCol,
+        userColName: resolvedSubCol,
+        mongoUri: plat.connection?.mongo_uri || plat.mongo_uri || '',
+        businessTimezone: plat.business_timezone || 'Africa/Accra',
+        collections: plat.collections || {},
+        mappings: plat.mappings || {},
+        offers: plat.offers || []
       };
     }
   } catch (err) {
@@ -184,9 +194,17 @@ export const sourceDataService = {
       }
 
       // 2. SUBSCRIBERS: Authoritative counts from production users/subscriptions collection
-      const userColName = isGhGamezone ? 'subscriptions' : 'users';
+      const userColName = isGhGamezone ? 'subscriptions' : (platConfig?.userColName || 'users');
       const userCol = getSourceCol(dbName, userColName);
-      const activeFilter = userColName === 'subscriptions' ? { status: 'active' } : { subscriptionStatus: 'active' };
+      const subStatusField = platConfig?.mappings?.subscription_status || (userColName === 'subscriptions' ? 'status' : 'subscriptionStatus');
+      const activeFilter = {
+        $or: [
+          { [subStatusField]: 'active' },
+          { [subStatusField]: 'A' },
+          { status: 'active' },
+          { subscriptionStatus: 'active' }
+        ]
+      };
 
       // Execute live metrics and authoritative business report concurrently
       const [renewalsCount, totalSubsCount, activeSubsCount, businessReport] = await Promise.all([
@@ -340,124 +358,184 @@ export const sourceDataService = {
   // ==========================================
   async getPlatformComparison() {
     const results = [];
-
-    // Platform 1: ghsuperwinings
+    const rDb = getReportingDb();
+    let allPlatforms = [];
     try {
-      const ghswUsersCol = getSourceCol('ghsuperwinings', 'users');
-      const ghswSdpCol = getSourceCol('ghsuperwinings', 'sdplog');
-
-      const [qTotal, qActive, qInactive, renSuccess, renFailed, revAgg, qChurn] = await Promise.all([
-        ghswUsersCol.countDocuments(),
-        ghswUsersCol.countDocuments({ subscriptionStatus: 'active' }),
-        ghswUsersCol.countDocuments({ subscriptionStatus: 'inactive' }),
-        ghswSdpCol.countDocuments({ normalizedStatus: 'renewal' }),
-        ghswSdpCol.countDocuments({ normalizedStatus: 'failed', $or: [{ lifecycle: /^REN/ }, { command: 'NotifyRenewal' }] }),
-        ghswSdpCol.aggregate([
-          { $match: { normalizedStatus: { $in: ['success', 'renewal'] } } },
-          { $group: { _id: null, total: { $sum: '$chargeAmount' } } }
-        ]).toArray(),
-        ghswSdpCol.countDocuments({
-          $or: [
-            { command: 'NotifyDeActivation' },
-            { normalizedStatus: 'churn' },
-            { subscriberLifeCycle: 'UNSUB1' }
-          ]
-        })
-      ]);
-
-      const totalRen = renSuccess + renFailed;
-      const renRate = totalRen > 0 ? `${((renSuccess / totalRen) * 100).toFixed(1)}%` : '98.2%';
-      const rev = revAgg[0]?.total || 2006.79;
-
-      results.push({
-        platformId: 1,
-        name: 'ghsuperwinings',
-        code: 'GHSUPERWININGS',
-        totalUsers: qTotal,
-        activeUsers: qActive,
-        expiredUsers: qInactive,
-        expiringSoon: 0,
-        upcomingUsers: 0,
-        subscribers: qTotal,
-        activeSubscribers: qActive,
-        renewals: renSuccess,
-        failedRenewals: renFailed,
-        revenue: rev,
-        churn: qChurn,
-        renewalRate: renRate
-      });
-    } catch (e) {
-      console.error('Error in ghsuperwinings comparison:', e);
+      allPlatforms = await rDb.collection('admin_platforms').find({ status: 'ACTIVE' }).sort({ id: 1 }).toArray();
+    } catch {
+      allPlatforms = PLATFORMS_META;
     }
 
-    // Platform 2: ghanagameium
-    try {
-      const gameSubsCol = getSourceCol('ghanagameium', 'subscriptions');
-      const gameUsersCol = getSourceCol('ghanagameium', 'users');
-      const gameSdpCol = getSourceCol('ghanagameium', 'sdplogs');
+    for (const plat of allPlatforms) {
+      const code = (plat.code || '').toUpperCase();
+      const pId = plat.id;
+      const pName = plat.name;
 
-      const [totUsers, actSubs, deactSubs, totSubs, renSuccess, renFailed, churnCount] = await Promise.all([
-        gameUsersCol.countDocuments(),
-        gameSubsCol.countDocuments({ status: 'active' }),
-        gameSubsCol.countDocuments({ status: 'deactivated' }),
-        gameSubsCol.countDocuments(),
-        gameSdpCol.countDocuments({ lifecycle: /^REN/, status: 'A' }),
-        gameSdpCol.countDocuments({ lifecycle: /^REN/, status: { $in: ['G', 'S', 'D'] } }),
-        gameSdpCol.countDocuments({ lifecycle: 'UNSUB1' })
-      ]);
+      if (code === 'GHSUPERWININGS' || pName === 'ghsuperwinings') {
+        try {
+          const ghswUsersCol = getSourceCol('ghsuperwinings', 'users');
+          const ghswSdpCol = getSourceCol('ghsuperwinings', 'sdplog');
 
-      const totalRen = renSuccess + renFailed;
-      const renRate = totalRen > 0 ? `${((renSuccess / totalRen) * 100).toFixed(1)}%` : '—';
-      const rev = renSuccess * 1.0; // 1 GHC per successful renewal
+          const [qTotal, qActive, qInactive, renSuccess, renFailed, revAgg, qChurn] = await Promise.all([
+            ghswUsersCol.countDocuments(),
+            ghswUsersCol.countDocuments({ subscriptionStatus: 'active' }),
+            ghswUsersCol.countDocuments({ subscriptionStatus: 'inactive' }),
+            ghswSdpCol.countDocuments({ normalizedStatus: 'renewal' }),
+            ghswSdpCol.countDocuments({ normalizedStatus: 'failed', $or: [{ lifecycle: /^REN/ }, { command: 'NotifyRenewal' }] }),
+            ghswSdpCol.aggregate([
+              { $match: { normalizedStatus: { $in: ['success', 'renewal'] } } },
+              { $group: { _id: null, total: { $sum: '$chargeAmount' } } }
+            ]).toArray(),
+            ghswSdpCol.countDocuments({
+              $or: [
+                { command: 'NotifyDeActivation' },
+                { normalizedStatus: 'churn' },
+                { subscriberLifeCycle: 'UNSUB1' }
+              ]
+            })
+          ]);
 
-      results.push({
-        platformId: 2,
-        name: 'ghanagameium',
-        code: 'GHANAGAMEIUM',
-        totalUsers: totUsers,
-        activeUsers: actSubs,
-        expiredUsers: deactSubs,
-        expiringSoon: 0,
-        upcomingUsers: 0,
-        subscribers: totSubs,
-        activeSubscribers: actSubs,
-        renewals: renSuccess,
-        failedRenewals: renFailed,
-        revenue: rev,
-        churn: churnCount,
-        renewalRate: renRate
-      });
-    } catch (e) {
-      console.error('Error in ghanagameium comparison:', e);
-    }
+          const totalRen = renSuccess + renFailed;
+          const renRate = totalRen > 0 ? `${((renSuccess / totalRen) * 100).toFixed(1)}%` : '98.2%';
+          const rev = revAgg[0]?.total || 2006.79;
 
-    // Platform 3: crazymuzik
-    try {
-      const musicUsersCol = getSourceCol('crazymuzik', 'users');
-      const [mTotal, mActive] = await Promise.all([
-        musicUsersCol.countDocuments(),
-        musicUsersCol.countDocuments({ isVerified: true })
-      ]);
+          results.push({
+            platformId: pId,
+            name: pName,
+            code: code,
+            totalUsers: qTotal,
+            activeUsers: qActive,
+            expiredUsers: qInactive,
+            expiringSoon: 0,
+            upcomingUsers: 0,
+            subscribers: qTotal,
+            activeSubscribers: qActive,
+            renewals: renSuccess,
+            failedRenewals: renFailed,
+            revenue: rev,
+            churn: qChurn,
+            renewalRate: renRate
+          });
+        } catch (e) {
+          console.error('Error in ghsuperwinings comparison:', e);
+        }
+      } else if (code === 'GHANAGAMEIUM' || pName === 'ghanagameium') {
+        try {
+          const gameSubsCol = getSourceCol('ghanagameium', 'subscriptions');
+          const gameUsersCol = getSourceCol('ghanagameium', 'users');
+          const gameSdpCol = getSourceCol('ghanagameium', 'sdplogs');
 
-      results.push({
-        platformId: 3,
-        name: 'crazymuzik',
-        code: 'CRAZYMUZIK',
-        totalUsers: mTotal,
-        activeUsers: mActive,
-        expiredUsers: 0,
-        expiringSoon: 0,
-        upcomingUsers: 0,
-        subscribers: mTotal,
-        activeSubscribers: mActive,
-        renewals: 0,
-        failedRenewals: 0,
-        revenue: 0.0,
-        churn: 0,
-        renewalRate: '—'
-      });
-    } catch (e) {
-      console.error('Error in crazymuzik comparison:', e);
+          const [totUsers, actSubs, deactSubs, totSubs, renSuccess, renFailed, churnCount] = await Promise.all([
+            gameUsersCol.countDocuments(),
+            gameSubsCol.countDocuments({ status: 'active' }),
+            gameSubsCol.countDocuments({ status: 'deactivated' }),
+            gameSubsCol.countDocuments(),
+            gameSdpCol.countDocuments({ lifecycle: /^REN/, status: 'A' }),
+            gameSdpCol.countDocuments({ lifecycle: /^REN/, status: { $in: ['G', 'S', 'D'] } }),
+            gameSdpCol.countDocuments({ lifecycle: 'UNSUB1' })
+          ]);
+
+          const totalRen = renSuccess + renFailed;
+          const renRate = totalRen > 0 ? `${((renSuccess / totalRen) * 100).toFixed(1)}%` : '—';
+          const rev = renSuccess * 1.0;
+
+          results.push({
+            platformId: pId,
+            name: pName,
+            code: code,
+            totalUsers: totUsers,
+            activeUsers: actSubs,
+            expiredUsers: deactSubs,
+            expiringSoon: 0,
+            upcomingUsers: 0,
+            subscribers: totSubs,
+            activeSubscribers: actSubs,
+            renewals: renSuccess,
+            failedRenewals: renFailed,
+            revenue: rev,
+            churn: churnCount,
+            renewalRate: renRate
+          });
+        } catch (e) {
+          console.error('Error in ghanagameium comparison:', e);
+        }
+      } else if (code === 'CRAZYMUZIK' || pName === 'crazymuzik') {
+        try {
+          const musicUsersCol = getSourceCol('crazymuzik', 'users');
+          const [mTotal, mActive] = await Promise.all([
+            musicUsersCol.countDocuments(),
+            musicUsersCol.countDocuments({ isVerified: true })
+          ]);
+
+          results.push({
+            platformId: pId,
+            name: pName,
+            code: code,
+            totalUsers: mTotal,
+            activeUsers: mActive,
+            expiredUsers: 0,
+            expiringSoon: 0,
+            upcomingUsers: 0,
+            subscribers: mTotal,
+            activeSubscribers: mActive,
+            renewals: 0,
+            failedRenewals: 0,
+            revenue: 0.0,
+            churn: 0,
+            renewalRate: '—'
+          });
+        } catch (e) {
+          console.error('Error in crazymuzik comparison:', e);
+        }
+      } else {
+        // Dynamic registered platform
+        try {
+          const dbName = plat.connection?.database_name || plat.database_name || plat.name;
+          const subColName = plat.collections?.subscribers || 'users';
+          const sdpColName = plat.collections?.sdp_logs || 'sdplog';
+
+          const dynSubCol = getSourceCol(dbName, subColName);
+          const dynSdpCol = getSourceCol(dbName, sdpColName);
+
+          const statusField = plat.mappings?.subscription_status || 'subscriptionStatus';
+          const amountField = plat.mappings?.charge_amount || 'chargeAmount';
+
+          const [dTotal, dActive, dRenewals, revAgg] = await Promise.all([
+            dynSubCol.countDocuments().catch(() => 0),
+            dynSubCol.countDocuments({
+              $or: [{ [statusField]: 'active' }, { [statusField]: 'A' }, { status: 'active' }, { status: 'A' }]
+            }).catch(() => 0),
+            dynSdpCol.countDocuments({ [amountField]: { $gt: 0 } }).catch(() => 0),
+            dynSdpCol.aggregate([
+              { $match: { [amountField]: { $gt: 0 } } },
+              { $group: { _id: null, total: { $sum: `$${amountField}` } } }
+            ]).toArray().catch(() => [])
+          ]);
+
+          const rev = revAgg[0]?.total || 0;
+          const renRate = dTotal > 0 ? `${((dRenewals / dTotal) * 100).toFixed(1)}%` : '—';
+
+          results.push({
+            platformId: pId,
+            name: pName,
+            code: code,
+            totalUsers: dTotal,
+            activeUsers: dActive,
+            expiredUsers: 0,
+            expiringSoon: 0,
+            upcomingUsers: 0,
+            subscribers: dTotal,
+            activeSubscribers: dActive,
+            renewals: dRenewals,
+            failedRenewals: 0,
+            revenue: Number(rev.toFixed(2)),
+            churn: 0,
+            renewalRate: renRate
+          });
+        } catch (e) {
+          console.warn(`Error in dynamic comparison for ${plat.name}:`, e.message);
+        }
+      }
     }
 
     return results;

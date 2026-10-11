@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import authRoutes from './authRoutes.js';
 import platformRoutes from './platformRoutes.js';
+import platformManagementRoutes from './platformManagementRoutes.js';
 import userRoutes from './userRoutes.js';
 import subscriberRoutes from './subscriberRoutes.js';
 import renewalRoutes from './renewalRoutes.js';
@@ -15,6 +16,7 @@ const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/platforms', platformRoutes);
+router.use('/platform-management', platformManagementRoutes);
 router.use('/users', userRoutes);
 router.use('/subscribers', subscriberRoutes);
 router.use('/renewals', renewalRoutes);

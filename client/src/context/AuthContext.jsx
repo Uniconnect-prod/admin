@@ -138,6 +138,22 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
+  // Refresh available platforms list from backend
+  const refreshPlatforms = async () => {
+    try {
+      const res = await api.get('/platforms');
+      if (res.data?.success) {
+        const platforms = res.data.data;
+        setAvailablePlatforms(platforms);
+        localStorage.setItem('availablePlatforms', JSON.stringify(platforms));
+        return platforms;
+      }
+    } catch (e) {
+      console.warn('Failed to refresh platforms:', e);
+    }
+    return availablePlatforms;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -148,6 +164,7 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         switchPlatform,
+        refreshPlatforms,
         isAuthenticated: !!user && !!localStorage.getItem('token')
       }}
     >

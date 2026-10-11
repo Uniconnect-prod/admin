@@ -246,6 +246,13 @@ async function initReportingAdminDb() {
   await accessCol.createIndex({ user_id: 1, platform_id: 1 }).catch(() => {});
   await rDb.collection('admin_audit_logs').createIndex({ created_at: -1 }).catch(() => {});
 
+  try {
+    const { platformRepository } = await import('../services/platformRepository.js');
+    await platformRepository.ensurePlatformSchemas();
+  } catch (schemaErr) {
+    console.warn('[Mongo] Platform schema enrichment notice:', schemaErr.message);
+  }
+
   console.log('✅ [Mongo] Reporting Admin metadata initialized successfully.');
 }
 
