@@ -4,6 +4,12 @@ A high-performance, multi-tenant analytics, subscriber telemetry, and date-wise 
 
 ---
 
+## 🌐 Live Deployments
+- **Production Frontend (Vercel)**: [https://reporting-dash-ofa2.vercel.app/](https://reporting-dash-ofa2.vercel.app/)
+- **Production Backend API (Render)**: [https://reporting-dash-kxeu.onrender.com/](https://reporting-dash-kxeu.onrender.com/)
+
+---
+
 ## 📑 Table of Contents
 1. [Architecture & Tech Stack](#-architecture--tech-stack)
 2. [Key System Features & Dashboard Layout](#-key-system-features--dashboard-layout)
@@ -68,10 +74,10 @@ The dashboard has been simplified and focused exclusively on the **GHSUPERWINNIN
 - **Resilient States**: Shimmer skeleton loaders while fetching (no fake zeros) and explicit error state with Retry capability.
 
 ### 2. 4 Primary Business KPI Cards
-- **Today's Renewals**: Number of actual renewal transactions (`command = 'NotifyRenewal'`) processed today in `Africa/Accra`. Zero is displayed as `0` (not `N/A`).
-- **Total Subscribers**: Total unique subscriber base using unique `msisdn` count from live MongoDB (excluding null, empty, and duplicates).
-- **Active Subscribers**: Evaluates latest subscription event per MSISDN via aggregation pipeline. Active only if latest state represents active subscription.
-- **Gross Billing (Revenue)**: Cumulative revenue generated in GHC from actual charging information (`chargeAmount` from `sdplog`). Never double-counted across collections.
+- **Today's Renewals / Total Renewals**: Successful, billed renewal transactions (`command = 'NotifyRenewal'`, `chargeAmount > 0`, and `status = 'A'`) processed today in `Africa/Accra`. Explicitly excludes failed transactions (`status = 'S'`, insufficient balance, 0 charge) so counts reflect real monetized renewals (~4,052 vs raw 21k unbilled callbacks). Dynamically labels as "Total Renewals" when viewing custom date ranges.
+- **Total Subscribers**: Authoritative subscriber base loaded directly from the production subscriber registry: `users` collection for `ghsuperwinings` (23,584 unique subscribers) and `subscriptions` collection for `ghanagameium` (4,456 subscribers). Aligned with the [Subscribers Management] module.
+- **Active Subscribers**: Real-time active subscriber count evaluated from the production registry (`subscriptionStatus: 'active'`), representing 4,000 active subscribers for SuperWinnings and 485 for Gameium.
+- **Gross Billing (Revenue)**: Total settlement billing revenue in GHC generated from billed transactions (`chargeAmount` from `sdplog`). Synchronized directly with the Business Settlement Report (`totals.grandTotal`) for selected date intervals (e.g., GHC 2,712.49 for Sept 1–30, 2026).
 
 ### 3. Daily Subscription & Settlement Breakdown List Table
 Directly below the 4 primary KPI cards, the dashboard displays the exact settlement table matching the enterprise acquisition specification:
