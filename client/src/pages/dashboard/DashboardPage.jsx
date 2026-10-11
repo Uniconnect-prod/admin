@@ -151,8 +151,8 @@ export const DashboardPage = () => {
   // Daily Breakdown filtering and pagination
   const allDailyRows = data?.dailyBreakdown || [];
   const filteredDailyRows = allDailyRows.filter(row => {
-    if (!searchDate.trim()) return true;
-    return row.date.includes(searchDate.trim());
+    const term = searchDate.trim().toLowerCase();
+    return (row.date && row.date.toLowerCase().includes(term)) || (row.isoDate && row.isoDate.toLowerCase().includes(term));
   });
 
   const totalPages = Math.max(1, Math.ceil(filteredDailyRows.length / rowsPerPage));
