@@ -1,888 +1,260 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  UserPlus, Edit2, KeyRound, ShieldAlert, Trash2, CheckCircle, XCircle, 
-  Calendar, Shield, Clock, AlertTriangle, AlertCircle, Check
-} from 'lucide-react';
-import api from '../../services/api';
+import React, { useMemo, useState } from 'react';
+import { ShieldCheck, Plus, Search, Pencil, KeyRound, Trash2, Loader2, CalendarClock } from 'lucide-react';
+import api, { describeError } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { PageHeader } from '../../components/common/PageHeader';
-import { DataTable } from '../../components/common/DataTable';
-import { StatusBadge } from '../../components/common/StatusBadge';
-import { Modal } from '../../components/common/Modal';
+import { useToast } from '../../context/ToastContext';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { PageHeader, Card, StatusBadge, Field } from '../../components/ui/primitives';
+import { ErrorPanel, TableSkeleton, StateView, Alert } from '../../components/ui/feedback';
+import { Modal, ConfirmDialog } from '../../components/ui/overlays';
+import { formatDateTime, formatDay } from '../../services/format';
 import './UsersPage.scss';
 
-export const UsersPage = () => {
-  const { user } = useAuth();
-  const [users, setUsers] = useState([]);
-  const [roles, setRoles] = useState([]);
-  const [allPlatforms, setAllPlatforms] = useState([]);
-  const [countries, setCountries] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [formError, setFormError] = useState('');
+const today = () => new Date().toISOString().slice(0, 10);
+const inDays = d => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
 
-  // Modals state
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [resetModalOpen, setResetModalOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [expandedUserPlatforms, setExpandedUserPlatforms] = useState({});
+const UserFormModal = ({ open, onClose, onSaved, user, roles, platforms }) => {
+  const toast = useToast();
+  const isEdit = Boolean(user);
+  const [form, setForm] = useState(() => ({
+    name: user?.name || '', email: user?.email || '', username: user?.username || '', password: '', status: user?.status || 'ACTIVE', country: user?.country || '',
+    assignments: (user?.platforms || []).map(p => ({ platform_id: p.platform_id, role_id: p.role_id, start_date: String(p.start_date).slice(0, 10), end_date: String(p.end_date).slice(0, 10), status: p.configured_status === 'REVOKED' ? 'REVOKED' : 'ACTIVE' }))
+  }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const set = patch => setForm(f => ({ ...f, ...patch }));
+  const setAssignment = (i, patch) => set({ assignments: form.assignments.map((a, j) => (j === i ? { ...a, ...patch } : a)) });
 
-  const toggleExpandUserPlatforms = (userId) => {
-    setExpandedUserPlatforms(prev => ({
-      ...prev,
-      [userId]: !prev[userId]
-    }));
-  };
-
-  const getDefaultStartDate = () => new Date().toISOString().split('T')[0];
-  const getDefaultEndDate = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return d.toISOString().split('T')[0];
-  };
-
-  // Add User Form State
-  const [newUser, setNewUser] = useState({
-    name: '',
-    email: '',
-    username: '',
-    password: '',
-    confirmPassword: '',
-    country: 'Ghana',
-    status: 'ACTIVE',
-    platform_assignments: [] // [{ platform_id, role_id, start_date, end_date, status }]
-  });
-
-  // Edit User Form State
-  const [editUser, setEditUser] = useState({
-    id: null,
-    name: '',
-    email: '',
-    username: '',
-    country: 'Ghana',
-    status: 'ACTIVE',
-    platform_assignments: []
-  });
-
-  const [newPassword, setNewPassword] = useState('');
-
-  const fetchUsersAndMeta = useCallback(async () => {
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    const body = {
+      name: form.name, email: form.email, username: form.username, status: form.status, country: form.country || null,
+      platform_assignments: form.assignments.filter(a => a.platform_id && a.role_id).map(a => ({ ...a, start_date: `${a.start_date}T00:00:00.000Z`, end_date: `${a.end_date}T23:59:59.999Z` }))
+    };
+    if (!isEdit) body.password = form.password;
     try {
-      setLoading(true);
-      const [uRes, rRes, pRes, cRes] = await Promise.all([
-        api.get('/users'),
-        api.get('/users/roles'),
-        api.get('/platforms'),
-        api.get('/countries?status=ACTIVE')
-      ]);
-
-      if (uRes.data?.success) setUsers(uRes.data.data);
-      if (rRes.data?.success) setRoles(rRes.data.data);
-      if (pRes.data?.success) setAllPlatforms(pRes.data.data);
-      if (cRes.data?.success) setCountries(cRes.data.data);
+      if (isEdit) await api.put(`/users/${user.id}`, body);
+      else await api.post('/users', body);
+      toast.success(isEdit ? 'User updated.' : 'User created.');
+      onSaved();
     } catch (err) {
-      console.error('Failed to load user management data:', err);
+      setError(describeError(err).message);
     } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUsersAndMeta();
-  }, [fetchUsersAndMeta]);
-
-  // ==================== ADD USER HANDLERS ====================
-  const handleTogglePlatformAssignment = (platformId, roleId = 4) => {
-    setFormError('');
-    setNewUser(prev => {
-      const exists = prev.platform_assignments.some(a => a.platform_id === platformId);
-      let updated;
-      if (exists) {
-        updated = prev.platform_assignments.filter(a => a.platform_id !== platformId);
-      } else {
-        updated = [
-          ...prev.platform_assignments,
-          {
-            platform_id: platformId,
-            role_id: roleId,
-            start_date: getDefaultStartDate(),
-            end_date: getDefaultEndDate(),
-            status: 'ACTIVE'
-          }
-        ];
-      }
-      return { ...prev, platform_assignments: updated };
-    });
-  };
-
-  const handleUpdatePlatformAssignmentField = (platformId, field, value) => {
-    setFormError('');
-    setNewUser(prev => ({
-      ...prev,
-      platform_assignments: prev.platform_assignments.map(a =>
-        a.platform_id === platformId ? { ...a, [field]: value } : a
-      )
-    }));
-  };
-
-  const validateAssignments = (assignments) => {
-    for (const a of assignments) {
-      if (a.start_date && a.end_date) {
-        const start = new Date(a.start_date).getTime();
-        const end = new Date(a.end_date).getTime();
-        if (start > end) {
-          const plat = allPlatforms.find(p => p.id === a.platform_id);
-          return `Start Date (${a.start_date}) cannot be after End Date (${a.end_date}) for ${plat?.name || 'selected platform'}.`;
-        }
-      }
-    }
-    return null;
-  };
-
-  const handleCreateUserSubmit = async (e) => {
-    e.preventDefault();
-    setFormError('');
-
-    if (newUser.password !== newUser.confirmPassword) {
-      setFormError('Passwords do not match.');
-      return;
-    }
-
-    const dateErr = validateAssignments(newUser.platform_assignments);
-    if (dateErr) {
-      setFormError(dateErr);
-      return;
-    }
-
-    try {
-      const res = await api.post('/users', newUser);
-      if (res.data?.success) {
-        setCreateModalOpen(false);
-        setNewUser({
-          name: '',
-          email: '',
-          username: '',
-          password: '',
-          confirmPassword: '',
-          country: 'Ghana',
-          status: 'ACTIVE',
-          platform_assignments: []
-        });
-        fetchUsersAndMeta();
-      }
-    } catch (err) {
-      setFormError(err.response?.data?.message || 'Failed to create user.');
+      setSaving(false);
     }
   };
 
-  // ==================== EDIT USER HANDLERS ====================
-  const handleOpenEditModal = (userRow) => {
-    setSelectedUser(userRow);
-    setFormError('');
-    const assignments = (userRow.platforms || []).map(p => ({
-      platform_id: p.platform_id,
-      role_id: p.role_id,
-      start_date: p.start_date ? p.start_date.split('T')[0].split(' ')[0] : getDefaultStartDate(),
-      end_date: p.end_date ? p.end_date.split('T')[0].split(' ')[0] : getDefaultEndDate(),
-      status: p.configured_status || (p.computed_status === 'REVOKED' ? 'REVOKED' : 'ACTIVE')
-    }));
-
-    setEditUser({
-      id: userRow.id,
-      name: userRow.name || '',
-      email: userRow.email || '',
-      username: userRow.username || '',
-      country: userRow.country || 'Ghana',
-      status: userRow.status || 'ACTIVE',
-      platform_assignments: assignments
-    });
-    setEditModalOpen(true);
-  };
-
-  const handleToggleEditPlatformAssignment = (platformId, roleId = 4) => {
-    setFormError('');
-    setEditUser(prev => {
-      const exists = prev.platform_assignments.some(a => a.platform_id === platformId);
-      let updated;
-      if (exists) {
-        updated = prev.platform_assignments.filter(a => a.platform_id !== platformId);
-      } else {
-        updated = [
-          ...prev.platform_assignments,
-          {
-            platform_id: platformId,
-            role_id: roleId,
-            start_date: getDefaultStartDate(),
-            end_date: getDefaultEndDate(),
-            status: 'ACTIVE'
-          }
-        ];
-      }
-      return { ...prev, platform_assignments: updated };
-    });
-  };
-
-  const handleUpdateEditPlatformAssignmentField = (platformId, field, value) => {
-    setFormError('');
-    setEditUser(prev => ({
-      ...prev,
-      platform_assignments: prev.platform_assignments.map(a =>
-        a.platform_id === platformId ? { ...a, [field]: value } : a
-      )
-    }));
-  };
-
-  const handleEditUserSubmit = async (e) => {
-    e.preventDefault();
-    setFormError('');
-
-    const dateErr = validateAssignments(editUser.platform_assignments);
-    if (dateErr) {
-      setFormError(dateErr);
-      return;
-    }
-
-    try {
-      const res = await api.put(`/users/${editUser.id}`, editUser);
-      if (res.data?.success) {
-        setEditModalOpen(false);
-        fetchUsersAndMeta();
-      }
-    } catch (err) {
-      setFormError(err.response?.data?.message || 'Failed to update user.');
-    }
-  };
-
-  // ==================== RESET PASSWORD & DELETE ====================
-  const handleResetPasswordSubmit = async () => {
-    if (!newPassword || newPassword.length < 6) {
-      alert('Password must be at least 6 characters.');
-      return;
-    }
-    try {
-      await api.put(`/users/${selectedUser.id}/reset-password`, { newPassword });
-      alert('Password updated successfully.');
-      setResetModalOpen(false);
-      setNewPassword('');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to reset password.');
-    }
-  };
-
-  const handleDeleteUser = async (userId) => {
-    if (!window.confirm('Are you sure you want to deactivate and remove this user?')) return;
-    try {
-      await api.delete(`/users/${userId}`);
-      fetchUsersAndMeta();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete user.');
-    }
-  };
-
-  const columns = [
-    {
-      header: 'Full Name',
-      key: 'name',
-      render: (row) => (
-        <div className="user-name-cell">
-          <strong>{row.name}</strong>
-          <span className="user-username">@{row.username}</span>
-        </div>
-      )
-    },
-    {
-      header: 'Email',
-      key: 'email',
-      render: (row) => <span className="text-secondary">{row.email}</span>
-    },
-    {
-      header: 'Assigned Country',
-      key: 'country',
-      render: (row) => (
-        <span
-          style={{
-            background: '#f1f5f9',
-            color: '#0f172a',
-            border: '1px solid #cbd5e1',
-            padding: '3px 8px',
-            borderRadius: '6px',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-            display: 'inline-block'
-          }}
-        >
-          {row.country || 'Ghana'}
-        </span>
-      )
-    },
-    {
-      header: 'Platform Access & Validity Window',
-      key: 'platforms',
-      render: (row) => {
-        const plats = row.platforms || [];
-        if (plats.length === 0) {
-          return (
-            <div className="platforms-pills-list">
-              <span className="text-muted no-access-tag">No platform authorizations</span>
-            </div>
-          );
-        }
-        const isExpanded = !!expandedUserPlatforms[row.id];
-        const visiblePlats = isExpanded ? plats : [plats[0]];
-
-        return (
-          <div className="platforms-pills-list">
-            {visiblePlats.map((p) => {
-              const startDateStr = p.start_date ? p.start_date.split('T')[0].split(' ')[0] : '—';
-              const endDateStr = p.end_date ? p.end_date.split('T')[0].split(' ')[0] : '—';
-              return (
-                <div key={p.platform_id} className={`platform-access-badge-card status-${(p.computed_status || 'active').toLowerCase()}`}>
-                  <div className="badge-platform-line">
-                    <span className="badge-p-name">{p.platform_name}</span>
-                    <span className="badge-p-role">({p.role_name})</span>
-                    <StatusBadge status={p.computed_status} />
-                  </div>
-                  <div className="badge-date-window">
-                    <Calendar size={11} className="date-icon" />
-                    <span>{startDateStr} to {endDateStr}</span>
-                    {p.isExpiringSoon && (
-                      <span className="expiring-tag" title={`Expires in ${p.daysUntilExpiry} days`}>
-                        ⏳ {p.daysUntilExpiry}d left
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {plats.length > 1 && (
-              <button
-                type="button"
-                className={`expand-plat-btn ${isExpanded ? 'collapse' : ''}`}
-                onClick={() => toggleExpandUserPlatforms(row.id)}
-              >
-                {isExpanded ? 'Show less ▲' : `+${plats.length - 1} more`}
-              </button>
-            )}
-          </div>
-        );
-      }
-    },
-    {
-      header: 'Account Status',
-      key: 'status',
-      render: (row) => <StatusBadge status={row.status} />
-    },
-    {
-      header: 'Last Login',
-      key: 'last_login_at',
-      render: (row) => (row.last_login_at ? new Date(row.last_login_at).toLocaleString() : 'Never')
-    },
-    {
-      header: 'Actions',
-      key: 'actions',
-      align: 'right',
-      render: (row) => (
-        <div className="table-actions-group">
-          {user?.isSuperAdmin && (
-            <button
-              type="button"
-              className="btn-icon"
-              onClick={() => handleOpenEditModal(row)}
-              title="Edit User & Platform Access"
-            >
-              <Edit2 size={15} />
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn-icon"
-            onClick={() => {
-              setSelectedUser(row);
-              setResetModalOpen(true);
-            }}
-            title="Reset Password"
-          >
-            <KeyRound size={15} />
-          </button>
-          {user?.isSuperAdmin && (
-            <button
-              type="button"
-              className="btn-icon text-danger"
-              onClick={() => handleDeleteUser(row.id)}
-              title="Delete User"
-            >
-              <Trash2 size={15} />
-            </button>
-          )}
-        </div>
-      )
-    }
-  ];
+  const usedPlatforms = new Set(form.assignments.map(a => Number(a.platform_id)));
 
   return (
-    <div className="users-page">
-      <PageHeader
-        title="User Management & Date-Wise Access Control"
-        subtitle="Provision enterprise operators, enforce platform-specific authorizations and validity date windows"
-        breadcrumbs={['Home', 'User Management', 'All Users']}
-        actions={
-          user?.isSuperAdmin ? (
-            <button type="button" className="btn btn-primary" onClick={() => { setFormError(''); setCreateModalOpen(true); }}>
-              <UserPlus size={15} />
-              Add New User
-            </button>
+    <Modal
+      open={open}
+      size="lg"
+      title={isEdit ? `Edit ${user.name}` : 'Add user'}
+      subtitle="Platform access is granted per platform with a role and an access window."
+      onClose={saving ? undefined : onClose}
+      footer={(
+        <>
+          <button type="button" className="btn btn--secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" form="user-form" className="btn btn--primary" disabled={saving}>{saving && <Loader2 size={16} className="spin" />} {isEdit ? 'Save changes' : 'Create user'}</button>
+        </>
+      )}
+    >
+      <form id="user-form" className="stack-lg" onSubmit={submit}>
+        {error && <Alert tone="danger">{error}</Alert>}
+        <div className="form-grid">
+          <Field label="Full name" required htmlFor="uf-name"><input id="uf-name" className="input" value={form.name} onChange={e => set({ name: e.target.value })} required /></Field>
+          <Field label="Email" required htmlFor="uf-email"><input id="uf-email" type="email" className="input" value={form.email} onChange={e => set({ email: e.target.value })} required /></Field>
+          <Field label="Username" required hint="3–50 characters: letters, digits, . _ -" htmlFor="uf-user"><input id="uf-user" className="input" value={form.username} onChange={e => set({ username: e.target.value })} required /></Field>
+          {!isEdit ? (
+            <Field label="Initial password" required hint="At least 10 characters. Share it securely; the user can change it in Settings." htmlFor="uf-pass"><input id="uf-pass" type="password" className="input" autoComplete="new-password" value={form.password} onChange={e => set({ password: e.target.value })} minLength={10} required /></Field>
           ) : (
-            <span className="read-only-badge">
-              <ShieldAlert size={14} /> Read-Only Mode (Super Admin Required)
-            </span>
-          )
-        }
-      />
-
-      {!user?.isSuperAdmin && (
-        <div className="admin-notice-banner">
-          <ShieldAlert size={18} />
-          <div>
-            <strong>Restricted Permissions:</strong> User creation, editing, and platform authorization modifications are restricted to Super Administrators.
-          </div>
+            <Field label="Account status" htmlFor="uf-status">
+              <select id="uf-status" className="select" value={form.status} onChange={e => set({ status: e.target.value })}>
+                <option value="ACTIVE">Active</option><option value="INACTIVE">Inactive (cannot sign in)</option>
+              </select>
+            </Field>
+          )}
         </div>
+
+        <div>
+          <div className="row-between" style={{ marginBottom: 8 }}>
+            <div className="section-title" style={{ margin: 0 }}>Platform access</div>
+            <button type="button" className="btn btn--soft btn--sm" onClick={() => set({ assignments: [...form.assignments, { platform_id: '', role_id: roles.find(r => r.name === 'Viewer')?.id || '', start_date: today(), end_date: inDays(365), status: 'ACTIVE' }] })}>
+              <Plus size={14} /> Add platform
+            </button>
+          </div>
+          {form.assignments.length === 0 ? <p className="text-muted">No platforms assigned. The user will not be able to sign in until at least one active assignment exists.</p> : (
+            <div className="assign-list">
+              {form.assignments.map((a, i) => (
+                <div key={i} className="assign-row">
+                  <select className="select input--sm" value={a.platform_id} onChange={e => setAssignment(i, { platform_id: Number(e.target.value) })} aria-label="Platform" required>
+                    <option value="">Select platform…</option>
+                    {platforms.map(p => <option key={p.id} value={p.id} disabled={usedPlatforms.has(p.id) && Number(a.platform_id) !== p.id}>{p.name}{p.country ? ` · ${p.country}` : ''}{p.status !== 'ACTIVE' ? ` (${p.status.toLowerCase()})` : ''}</option>)}
+                  </select>
+                  <select className="select input--sm" value={a.role_id} onChange={e => setAssignment(i, { role_id: Number(e.target.value) })} aria-label="Role" required>
+                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                  <input type="date" className="input input--sm" value={a.start_date} max={a.end_date} onChange={e => setAssignment(i, { start_date: e.target.value })} aria-label="Access start" required />
+                  <input type="date" className="input input--sm" value={a.end_date} min={a.start_date} onChange={e => setAssignment(i, { end_date: e.target.value })} aria-label="Access end" required />
+                  <select className="select input--sm" value={a.status} onChange={e => setAssignment(i, { status: e.target.value })} aria-label="Assignment status">
+                    <option value="ACTIVE">Active</option><option value="REVOKED">Revoked</option>
+                  </select>
+                  <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={() => set({ assignments: form.assignments.filter((_, j) => j !== i) })} aria-label="Remove assignment"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="field__hint" style={{ marginTop: 8 }}>Access is checked on every request: outside the window, or when revoked, the platform disappears for this user immediately.</p>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+const UsersPage = () => {
+  const { can, user: me } = useAuth();
+  const toast = useToast();
+  const canManage = can('users:manage');
+  const users = useApiQuery('/users', { platformScoped: false });
+  const roles = useApiQuery('/users/roles', { platformScoped: false });
+  const platforms = useApiQuery(canManage ? '/platform-management' : null, { platformScoped: false, enabled: canManage });
+  const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [resetting, setResetting] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [deleting, setDeleting] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (users.data || []).filter(u => !q || [u.name, u.email, u.username].some(x => (x || '').toLowerCase().includes(q)));
+  }, [users.data, search]);
+
+  const doReset = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/users/${resetting.id}/reset-password`, { newPassword });
+      toast.success(`Password reset for ${resetting.name}. Their existing sessions were signed out.`);
+      setResetting(null);
+      setNewPassword('');
+    } catch (err) {
+      toast.error(describeError(err).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      await api.delete(`/users/${deleting.id}`);
+      toast.success(`${deleting.name} was removed and their access revoked.`);
+      setDeleting(null);
+      users.reload();
+    } catch (err) {
+      toast.error(describeError(err).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stack-lg">
+      <PageHeader
+        eyebrow={<><ShieldCheck size={14} /> Administration</>}
+        title="Users & access control"
+        description={canManage ? 'Manage operators, their roles and date-windowed access to each platform.' : 'Users with access to the platforms you administer (read-only).'}
+        actions={canManage && <button type="button" className="btn btn--primary" onClick={() => setCreating(true)}><Plus size={16} /> Add user</button>}
+      />
+      <div className="filters-bar">
+        <div className="input-group" style={{ width: 300 }}>
+          <Search size={15} />
+          <input className="input" placeholder="Search name, email or username" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search users" />
+        </div>
+      </div>
+      <Card flush>
+        {users.error ? <ErrorPanel error={users.error} onRetry={users.reload} /> : users.loading ? <TableSkeleton rows={6} cols={6} /> : list.length === 0 ? (
+          <StateView compact icon={ShieldCheck} title="No users found" />
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>User</th><th>Role(s)</th><th>Platform access</th><th>Status</th><th>Last sign-in</th>{canManage && <th />}</tr></thead>
+              <tbody>
+                {list.map(u => (
+                  <tr key={u.id}>
+                    <td><div className="text-strong">{u.name}{u.id === me?.id && <span className="badge badge--brand" style={{ marginLeft: 6 }}>You</span>}</div><span className="cell-sub">{u.email} · @{u.username}</span></td>
+                    <td>{u.is_super_admin ? <span className="badge badge--dark">Super Admin</span> : u.roles.map(r => <span key={r} className="badge" style={{ marginRight: 4 }}>{r}</span>)}</td>
+                    <td>
+                      {u.platforms.length === 0 ? <span className="text-faint">{u.is_super_admin ? 'All platforms' : 'None'}</span> : (
+                        <div className="access-list">
+                          {u.platforms.map(p => (
+                            <span key={p.platform_id} className="access-pill" title={`${p.role_name} · ${formatDay(String(p.start_date).slice(0, 10))} → ${formatDay(String(p.end_date).slice(0, 10))}`}>
+                              <StatusBadge status={p.isExpiringSoon ? 'EXPIRING' : p.computed_status} label={p.platform_name} />
+                              {p.isExpiringSoon && <CalendarClock size={13} className="text-muted" />}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td><StatusBadge status={u.status} /></td>
+                    <td className="nowrap text-muted">{formatDateTime(u.last_login_at)}</td>
+                    {canManage && (
+                      <td className="text-right nowrap">
+                        <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={() => setEditing(u)} aria-label={`Edit ${u.name}`} title="Edit"><Pencil size={15} /></button>
+                        <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={() => { setResetting(u); setNewPassword(''); }} aria-label={`Reset password for ${u.name}`} title="Reset password"><KeyRound size={15} /></button>
+                        {u.id !== me?.id && <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={() => setDeleting(u)} aria-label={`Remove ${u.name}`} title="Remove"><Trash2 size={15} /></button>}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {(creating || editing) && roles.data && (
+        <UserFormModal
+          open
+          user={editing}
+          roles={roles.data}
+          platforms={platforms.data || []}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { setCreating(false); setEditing(null); users.reload(); }}
+        />
       )}
 
-      <DataTable
-        columns={columns}
-        data={users}
-        loading={loading}
-        emptyMessage="No users registered in system."
+      <Modal
+        open={Boolean(resetting)}
+        title={`Reset password for ${resetting?.name || ''}`}
+        subtitle="All of this user's sessions will be signed out."
+        onClose={busy ? undefined : () => setResetting(null)}
+        footer={(
+          <>
+            <button type="button" className="btn btn--secondary" onClick={() => setResetting(null)} disabled={busy}>Cancel</button>
+            <button type="button" className="btn btn--primary" onClick={doReset} disabled={busy || newPassword.length < 10}>{busy && <Loader2 size={16} className="spin" />} Reset password</button>
+          </>
+        )}
+      >
+        <Field label="New password" hint="At least 10 characters." htmlFor="rp-new"><input id="rp-new" type="password" className="input" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} /></Field>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        title={`Remove ${deleting?.name || ''}?`}
+        message="The account is deactivated, all platform access is revoked and existing sessions are signed out. Audit history is kept."
+        confirmLabel="Remove user"
+        tone="danger"
+        busy={busy}
+        onConfirm={doDelete}
+        onClose={() => setDeleting(null)}
       />
-
-      {/* ==================== CREATE USER MODAL ==================== */}
-      <Modal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        title="Provision New Enterprise User"
-        maxWidth="740px"
-        footer={
-          <>
-            <button type="button" className="btn btn-secondary" onClick={() => setCreateModalOpen(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={handleCreateUserSubmit}>
-              Create User & Assign Access
-            </button>
-          </>
-        }
-      >
-        <form onSubmit={handleCreateUserSubmit} className="user-form-modal">
-          {formError && (
-            <div className="modal-error-alert">
-              <AlertCircle size={16} />
-              <span>{formError}</span>
-            </div>
-          )}
-
-          <div className="form-grid-2">
-            <div className="form-group">
-              <label>Full Name</label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="e.g. Kwame Boateng"
-                value={newUser.name}
-                onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Email Address</label>
-              <input
-                type="email"
-                className="form-control"
-                placeholder="user@enterprise.com"
-                value={newUser.email}
-                onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="form-grid-3">
-            <div className="form-group">
-              <label>Username</label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="username"
-                value={newUser.username}
-                onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="password"
-                className="form-control"
-                placeholder="••••••••"
-                value={newUser.password}
-                onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Confirm Password</label>
-              <input
-                type="password"
-                className="form-control"
-                placeholder="••••••••"
-                value={newUser.confirmPassword}
-                onChange={(e) => setNewUser({ ...newUser, confirmPassword: e.target.value })}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="form-divider" />
-
-          <div className="form-group mb-3">
-            <label style={{ fontWeight: 600, color: '#1e293b' }}>Assigned Operating Country / Market</label>
-            <select
-              className="form-control"
-              value={newUser.country}
-              onChange={(e) => setNewUser({ ...newUser, country: e.target.value })}
-            >
-              {countries.map(c => (
-                <option key={c.id} value={c.name}>{c.name} ({c.code}) - {c.currency}</option>
-              ))}
-              <option value="ALL">All Countries / Universal</option>
-            </select>
-            <span style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
-              Assigning a country dynamically filters the platform selection below to platforms active in this market.
-            </span>
-          </div>
-
-          <h4 className="platform-rbac-title">Platform Access & Validity Date Windows</h4>
-          <p className="platform-rbac-sub">
-            Select platform(s), assign specific roles, and define Start and End dates. Access is evaluated in real-time.
-          </p>
-
-          {(() => {
-            const countryFilter = newUser.country;
-            const displayedPlatforms = (countryFilter && countryFilter !== 'ALL')
-              ? allPlatforms.filter(p => (p.country || 'Ghana').toLowerCase() === countryFilter.toLowerCase())
-              : allPlatforms;
-
-            return (
-              <>
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#475569' }}>
-                    Available Platforms in {countryFilter === 'ALL' ? 'All Countries' : countryFilter} ({displayedPlatforms.length}):
-                  </span>
-                  {allPlatforms.length > displayedPlatforms.length && (
-                    <button
-                      type="button"
-                      className="btn-link"
-                      style={{ fontSize: '0.75rem', background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer' }}
-                      onClick={() => setNewUser({ ...newUser, country: 'ALL' })}
-                    >
-                      Show platforms from all countries
-                    </button>
-                  )}
-                </div>
-
-                <div className="platform-assign-rows">
-                  {displayedPlatforms.length === 0 ? (
-                    <div style={{ padding: '1rem', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '0.85rem' }}>
-                      No platforms found operating in {countryFilter}. Please add platforms for this country in Platforms Config or switch country.
-                    </div>
-                  ) : (
-                    displayedPlatforms.map((p) => {
-                      const assigned = newUser.platform_assignments.find(a => a.platform_id === p.id);
-                      return (
-                        <div key={p.id} className={`platform-assign-item ${assigned ? 'assigned' : ''}`}>
-                          <div className="platform-top-row">
-                            <label className="platform-checkbox-label">
-                              <input
-                                type="checkbox"
-                                checked={!!assigned}
-                                onChange={() => handleTogglePlatformAssignment(p.id)}
-                              />
-                              <span className="p-name">
-                                <strong>{p.name}</strong> ({p.code})
-                                <span style={{ marginLeft: '8px', padding: '1px 6px', borderRadius: '4px', fontSize: '0.72rem', background: '#e2e8f0', color: '#475569', fontWeight: 500 }}>
-                                  {p.country || 'Ghana'}
-                                </span>
-                              </span>
-                            </label>
-
-                            {assigned && (
-                              <div className="role-and-status">
-                                <select
-                                  className="form-control role-select"
-                                  value={assigned.role_id}
-                                  onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'role_id', parseInt(e.target.value, 10))}
-                                >
-                                  {roles.map(r => (
-                                    <option key={r.id} value={r.id}>{r.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                          </div>
-
-                          {assigned && (
-                            <div className="platform-dates-row">
-                              <div className="date-input-group">
-                                <label>Start Date</label>
-                                <input
-                                  type="date"
-                                  className="form-control date-input"
-                                  value={assigned.start_date || ''}
-                                  onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'start_date', e.target.value)}
-                                  required
-                                />
-                              </div>
-                              <div className="date-input-group">
-                                <label>End Date</label>
-                                <input
-                                  type="date"
-                                  className="form-control date-input"
-                                  value={assigned.end_date || ''}
-                                  onChange={(e) => handleUpdatePlatformAssignmentField(p.id, 'end_date', e.target.value)}
-                                  required
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </>
-            );
-          })()}
-        </form>
-      </Modal>
-
-      {/* ==================== EDIT USER MODAL ==================== */}
-      <Modal
-        isOpen={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        title={`Edit User Access: ${editUser.name || editUser.username}`}
-        maxWidth="740px"
-        footer={
-          <>
-            <button type="button" className="btn btn-secondary" onClick={() => setEditModalOpen(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={handleEditUserSubmit}>
-              Save Changes
-            </button>
-          </>
-        }
-      >
-        <form onSubmit={handleEditUserSubmit} className="user-form-modal">
-          {formError && (
-            <div className="modal-error-alert">
-              <AlertCircle size={16} />
-              <span>{formError}</span>
-            </div>
-          )}
-
-          <div className="form-grid-3">
-            <div className="form-group">
-              <label>Full Name</label>
-              <input
-                type="text"
-                className="form-control"
-                value={editUser.name}
-                onChange={(e) => setEditUser({ ...editUser, name: e.target.value })}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Email Address</label>
-              <input
-                type="email"
-                className="form-control"
-                value={editUser.email}
-                onChange={(e) => setEditUser({ ...editUser, email: e.target.value })}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Account Status</label>
-              <select
-                className="form-control"
-                value={editUser.status}
-                onChange={(e) => setEditUser({ ...editUser, status: e.target.value })}
-              >
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
-                <option value="SUSPENDED">SUSPENDED</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-group mt-3">
-            <label style={{ fontWeight: 600, color: '#1e293b' }}>Assigned Operating Country / Market</label>
-            <select
-              className="form-control"
-              value={editUser.country}
-              onChange={(e) => setEditUser({ ...editUser, country: e.target.value })}
-            >
-              {countries.map(c => (
-                <option key={c.id} value={c.name}>{c.name} ({c.code}) - {c.currency}</option>
-              ))}
-              <option value="ALL">All Countries / Universal</option>
-            </select>
-            <span style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
-              Assigning a country dynamically filters the platform selection below to platforms active in this market.
-            </span>
-          </div>
-
-          <div className="form-divider" />
-
-          <h4 className="platform-rbac-title">Manage Platform Authorizations & Date Windows</h4>
-          <p className="platform-rbac-sub">
-            Grant or revoke access, modify roles, and change the active date window per platform:
-          </p>
-
-          {(() => {
-            const countryFilter = editUser.country;
-            const displayedPlatforms = (countryFilter && countryFilter !== 'ALL')
-              ? allPlatforms.filter(p => (p.country || 'Ghana').toLowerCase() === countryFilter.toLowerCase())
-              : allPlatforms;
-
-            return (
-              <>
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#475569' }}>
-                    Available Platforms in {countryFilter === 'ALL' ? 'All Countries' : countryFilter} ({displayedPlatforms.length}):
-                  </span>
-                  {allPlatforms.length > displayedPlatforms.length && (
-                    <button
-                      type="button"
-                      className="btn-link"
-                      style={{ fontSize: '0.75rem', background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer' }}
-                      onClick={() => setEditUser({ ...editUser, country: 'ALL' })}
-                    >
-                      Show platforms from all countries
-                    </button>
-                  )}
-                </div>
-
-                <div className="platform-assign-rows">
-                  {displayedPlatforms.length === 0 ? (
-                    <div style={{ padding: '1rem', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '0.85rem' }}>
-                      No platforms found operating in {countryFilter}. Please add platforms for this country in Platforms Config or switch country.
-                    </div>
-                  ) : (
-                    displayedPlatforms.map((p) => {
-                      const assigned = editUser.platform_assignments.find(a => a.platform_id === p.id);
-                      return (
-                        <div key={p.id} className={`platform-assign-item ${assigned ? 'assigned' : ''}`}>
-                          <div className="platform-top-row">
-                            <label className="platform-checkbox-label">
-                              <input
-                                type="checkbox"
-                                checked={!!assigned}
-                                onChange={() => handleToggleEditPlatformAssignment(p.id)}
-                              />
-                              <span className="p-name">
-                                <strong>{p.name}</strong> ({p.code})
-                                <span style={{ marginLeft: '8px', padding: '1px 6px', borderRadius: '4px', fontSize: '0.72rem', background: '#e2e8f0', color: '#475569', fontWeight: 500 }}>
-                                  {p.country || 'Ghana'}
-                                </span>
-                              </span>
-                            </label>
-
-                            {assigned && (
-                              <div className="role-and-status">
-                                <select
-                                  className="form-control role-select"
-                                  value={assigned.role_id}
-                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'role_id', parseInt(e.target.value, 10))}
-                                >
-                                  {roles.map(r => (
-                                    <option key={r.id} value={r.id}>{r.name}</option>
-                                  ))}
-                                </select>
-                                <select
-                                  className="form-control status-select"
-                                  value={assigned.status || 'ACTIVE'}
-                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'status', e.target.value)}
-                                >
-                                  <option value="ACTIVE">Access: ACTIVE</option>
-                                  <option value="REVOKED">Access: REVOKED</option>
-                                </select>
-                              </div>
-                            )}
-                          </div>
-
-                          {assigned && (
-                            <div className="platform-dates-row">
-                              <div className="date-input-group">
-                                <label>Start Date</label>
-                                <input
-                                  type="date"
-                                  className="form-control date-input"
-                                  value={assigned.start_date || ''}
-                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'start_date', e.target.value)}
-                                  required
-                                />
-                              </div>
-                              <div className="date-input-group">
-                                <label>End Date</label>
-                                <input
-                                  type="date"
-                                  className="form-control date-input"
-                                  value={assigned.end_date || ''}
-                                  onChange={(e) => handleUpdateEditPlatformAssignmentField(p.id, 'end_date', e.target.value)}
-                                  required
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </>
-            );
-          })()}
-        </form>
-      </Modal>
-
-      {/* ==================== RESET PASSWORD MODAL ==================== */}
-      <Modal
-        isOpen={resetModalOpen}
-        onClose={() => setResetModalOpen(false)}
-        title={`Reset Password for ${selectedUser?.name}`}
-        maxWidth="440px"
-        footer={
-          <>
-            <button type="button" className="btn btn-secondary" onClick={() => setResetModalOpen(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={handleResetPasswordSubmit}>
-              Update Password
-            </button>
-          </>
-        }
-      >
-        <div className="form-group">
-          <label>New Password</label>
-          <input
-            type="password"
-            className="form-control"
-            placeholder="At least 6 characters"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-          />
-        </div>
-      </Modal>
     </div>
   );
 };
+
+export default UsersPage;

@@ -1,0 +1,406 @@
+.gh-dashboard {
+  width: 100%;
+  padding-bottom: 32px;
+
+  // --- Top 4 KPI Cards ---
+  .gh-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+
+    @media (max-width: 1100px) {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    @media (max-width: 600px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .gh-kpi-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px 22px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+    &:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+  }
+
+  .gh-kpi-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1d4ed8; // vibrant bold blue
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .gh-kpi-value-row {
+    margin-top: 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: baseline;
+  }
+
+  .gh-kpi-value {
+    font-size: 38px;
+    font-weight: 800;
+    color: #ea580c; // bold vibrant orange
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+
+  .gh-currency-ghc {
+    color: #ea580c;
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+
+  .gh-currency-val {
+    color: #0284c7; // sky blue
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+
+  .gh-kpi-footer {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    margin-top: 4px;
+
+    .gh-tag-up {
+      color: #16a34a; // vibrant green
+      font-weight: 700;
+    }
+
+    .gh-tag-vs {
+      color: #64748b; // muted slate
+      font-weight: 400;
+    }
+  }
+
+  // --- Main Card (All Subscriber) ---
+  .gh-main-card {
+    margin-top: 22px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    overflow: hidden;
+  }
+
+  .gh-toolbar-header {
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    background: #ffffff;
+  }
+
+  .gh-heading-area {
+    .gh-title {
+      font-size: 24px;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0 0 4px 0;
+      letter-spacing: -0.02em;
+    }
+
+    .gh-sub {
+      font-size: 13px;
+      color: #64748b;
+      margin: 0;
+      font-weight: 500;
+    }
+  }
+
+  .gh-controls-area {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .gh-btn-export {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    background-color: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    height: 38px;
+    cursor: pointer;
+    line-height: 1.2;
+    text-align: center;
+    transition: background-color 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background-color: #1d4ed8;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
+
+  .gh-btn-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #f1f5f9;
+    color: #1e293b;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    height: 38px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background-color: #e2e8f0;
+    }
+  }
+
+  .gh-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    label {
+      font-size: 10px;
+      font-weight: 800;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input, select {
+      height: 38px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 13px;
+      color: #1e293b;
+      background-color: #ffffff;
+      outline: none;
+      min-width: 130px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+      &:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+      }
+    }
+
+    select {
+      cursor: pointer;
+      padding-right: 24px;
+    }
+  }
+
+  .gh-btn-apply {
+    background-color: #0284c7; // deep teal / cyan
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    height: 38px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.2;
+    transition: background-color 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background-color: #0369a1;
+    }
+  }
+
+  // --- Table ---
+  .gh-table-container {
+    width: 100%;
+    overflow-x: auto;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .gh-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+
+    thead tr {
+      background-color: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    th {
+      padding: 14px 18px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #1e293b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #f1f5f9;
+      transition: background-color 0.1s ease;
+
+      &:hover {
+        background-color: #f8fafc;
+      }
+    }
+
+    td {
+      padding: 13px 18px;
+      font-size: 13px;
+      color: #334155;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    .gh-cell-mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: #0f172a;
+    }
+
+    .gh-status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 9px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+
+      &.status-success, &.status-active, &.status-ok {
+        background-color: #ecfdf5;
+        color: #059669;
+        border: 1px solid #a7f3d0;
+      }
+
+      &.status-failed, &.status-churn, &.status-deactivated, &.status-error {
+        background-color: #fef2f2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+      }
+
+      &.status-renewal {
+        background-color: #eff6ff;
+        color: #2563eb;
+        border: 1px solid #bfdbfe;
+      }
+
+      &.status-neutral {
+        background-color: #f1f5f9;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+      }
+    }
+  }
+
+  .gh-empty-table-row {
+    td {
+      padding: 56px 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 14px;
+      font-weight: 500;
+    }
+  }
+
+  // --- Pagination ---
+  .gh-pagination-bar {
+    padding: 14px 24px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    background-color: #ffffff;
+
+    .gh-page-info {
+      font-size: 13px;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .gh-pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      button {
+        height: 32px;
+        min-width: 32px;
+        padding: 0 10px;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #334155;
+        border-radius: 5px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+
+        &:hover:not(:disabled) {
+          border-color: #2563eb;
+          color: #2563eb;
+          background-color: #f8fafc;
+        }
+
+        &.is-active {
+          background-color: #2563eb;
+          color: #ffffff;
+          border-color: #2563eb;
+        }
+
+        &:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+      }
+    }
+
+    .gh-pagesize-select {
+      height: 32px;
+      border: 1px solid #cbd5e1;
+      border-radius: 5px;
+      padding: 0 8px;
+      font-size: 12px;
+      color: #334155;
+      background: #ffffff;
+      margin-left: 8px;
+    }
+  }
+}

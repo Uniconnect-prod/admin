@@ -1,290 +1,130 @@
-import React, { useState, useEffect } from 'react';
-import { User, Shield, Bell, Sliders, CheckCircle2, AlertCircle, Globe } from 'lucide-react';
-import api from '../../services/api';
+import React, { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Settings, User, Lock, KeyRound, Globe2, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react';
+import api, { describeError } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { PageHeader } from '../../components/common/PageHeader';
-import './SettingsPage.scss';
+import { useToast } from '../../context/ToastContext';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { PageHeader, Card, Field, Tabs, StatusBadge } from '../../components/ui/primitives';
+import { ErrorPanel, KpiSkeletonGrid } from '../../components/ui/feedback';
+import { formatDateTime, formatDay } from '../../services/format';
 
-export const SettingsPage = () => {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('profile');
-  const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState(null);
-
-  // Profile Form
-  const [profile, setProfile] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    username: user?.username || ''
-  });
-
-  // Security Form
-  const [passwords, setPasswords] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: ''
-  });
-
-  // Preferences
-  const [preferences, setPreferences] = useState({
-    renewalAlerts: true,
-    churnWarningThreshold: '10',
-    defaultExportFormat: 'csv',
-    autoRefreshInterval: '60'
-  });
-
-  const handleUpdateProfile = async (e) => {
+const ProfileTab = ({ profile, onSaved }) => {
+  const toast = useToast();
+  const [form, setForm] = useState({ name: profile.name, email: profile.email });
+  const [saving, setSaving] = useState(false);
+  const submit = async (e) => {
     e.preventDefault();
+    setSaving(true);
     try {
-      setLoading(true);
-      const res = await api.put('/settings/profile', {
-        name: profile.name,
-        email: profile.email
-      });
-      if (res.data?.success) {
-        setFeedback({ type: 'success', message: 'Profile information updated successfully.' });
-      }
+      await api.put('/settings/profile', form);
+      toast.success('Profile updated.');
+      onSaved();
     } catch (err) {
-      setFeedback({ type: 'error', message: err.response?.data?.message || 'Failed to update profile.' });
+      toast.error(describeError(err).message);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
+  return (
+    <Card title="Profile" icon={User}>
+      <form className="stack" onSubmit={submit}>
+        <div className="form-grid">
+          <Field label="Full name" htmlFor="st-name"><input id="st-name" className="input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></Field>
+          <Field label="Email" htmlFor="st-email"><input id="st-email" type="email" className="input" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></Field>
+          <Field label="Username" hint="Usernames are managed by a Super Admin."><input className="input" value={profile.username} disabled /></Field>
+          <Field label="Last sign-in"><input className="input" value={formatDateTime(profile.last_login_at)} disabled /></Field>
+        </div>
+        <div><button type="submit" className="btn btn--primary" disabled={saving}>{saving && <Loader2 size={16} className="spin" />} Save profile</button></div>
+      </form>
+    </Card>
+  );
+};
 
-  const handleUpdateSecurity = async (e) => {
+const SecurityTab = ({ minLength }) => {
+  const toast = useToast();
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const [saving, setSaving] = useState(false);
+  const mismatch = form.confirm && form.newPassword !== form.confirm;
+  const submit = async (e) => {
     e.preventDefault();
-    if (passwords.newPassword !== passwords.confirmPassword) {
-      alert('New passwords do not match.');
-      return;
-    }
-
+    setSaving(true);
     try {
-      setLoading(true);
-      const res = await api.put('/settings/security', {
-        currentPassword: passwords.currentPassword,
-        newPassword: passwords.newPassword
-      });
-      if (res.data?.success) {
-        setFeedback({ type: 'success', message: 'Password changed successfully.' });
-        setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      }
+      await api.put('/settings/security', { currentPassword: form.currentPassword, newPassword: form.newPassword });
+      toast.success('Password changed. Other sessions were signed out.');
+      setForm({ currentPassword: '', newPassword: '', confirm: '' });
     } catch (err) {
-      setFeedback({ type: 'error', message: err.response?.data?.message || 'Failed to update security credentials.' });
+      toast.error(describeError(err).message);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
+  return (
+    <Card title="Change password" icon={Lock}>
+      <form className="stack" onSubmit={submit} style={{ maxWidth: 460 }}>
+        <Field label="Current password" htmlFor="sc-cur"><input id="sc-cur" type="password" className="input" autoComplete="current-password" value={form.currentPassword} onChange={e => setForm({ ...form, currentPassword: e.target.value })} required /></Field>
+        <Field label="New password" hint={`At least ${minLength} characters.`} htmlFor="sc-new"><input id="sc-new" type="password" className="input" autoComplete="new-password" minLength={minLength} value={form.newPassword} onChange={e => setForm({ ...form, newPassword: e.target.value })} required /></Field>
+        <Field label="Confirm new password" error={mismatch ? 'Passwords do not match.' : null} htmlFor="sc-conf"><input id="sc-conf" type="password" className="input" autoComplete="new-password" value={form.confirm} onChange={e => setForm({ ...form, confirm: e.target.value })} required /></Field>
+        <div><button type="submit" className="btn btn--primary" disabled={saving || mismatch || form.newPassword.length < minLength}>{saving && <Loader2 size={16} className="spin" />} Change password</button></div>
+      </form>
+    </Card>
+  );
+};
+
+const AccessTab = ({ access }) => (
+  <Card title="My platform access" icon={KeyRound} flush subtitle="Access windows are enforced on every request.">
+    <div className="table-wrap">
+      <table className="table">
+        <thead><tr><th>Platform</th><th>Role</th><th>Window</th><th>Status</th></tr></thead>
+        <tbody>
+          {access.map((a, i) => (
+            <tr key={i}>
+              <td className="text-strong">{a.platform}</td>
+              <td>{a.role}</td>
+              <td className="text-muted">{a.start_date ? `${formatDay(String(a.start_date).slice(0, 10))} → ${formatDay(String(a.end_date).slice(0, 10))}` : 'Unrestricted'}</td>
+              <td>{a.status ? <StatusBadge status={a.isExpiringSoon ? 'EXPIRING' : a.status} label={a.isExpiringSoon ? 'Expiring soon' : undefined} /> : <StatusBadge status="ACTIVE" />}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </Card>
+);
+
+const SettingsPage = () => {
+  const { can } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') || 'profile';
+  const { data, error, loading, reload } = useApiQuery('/settings', { platformScoped: false });
+  useEffect(() => { if (!['profile', 'security', 'access'].includes(tab)) setParams({ tab: 'profile' }); }, [tab, setParams]);
 
   return (
-    <div className="settings-page">
-      <PageHeader
-        title="Settings & Platform Preferences"
-        subtitle="Manage personal operator profile, credentials, notifications, and dashboard telemetry"
-        breadcrumbs={['Home', 'System', 'Settings']}
-      />
-
-      {feedback && (
-        <div className={`feedback-banner alert-${feedback.type}`}>
-          {feedback.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          <span>{feedback.message}</span>
+    <div className="stack-lg">
+      <PageHeader eyebrow={<><Settings size={14} /> Settings</>} title="Settings" description="Your account, security and access." />
+      <Tabs tabs={[{ id: 'profile', label: 'Profile', icon: User }, { id: 'security', label: 'Security', icon: Lock }, { id: 'access', label: 'My access', icon: KeyRound }]} active={tab} onChange={t => setParams({ tab: t })} />
+      {error ? <div className="card"><ErrorPanel error={error} onRetry={reload} /></div> : loading || !data ? <KpiSkeletonGrid count={2} /> : (
+        <>
+          {tab === 'profile' && <ProfileTab profile={data.profile} onSaved={reload} />}
+          {tab === 'security' && <SecurityTab minLength={data.passwordPolicy.minLength} />}
+          {tab === 'access' && <AccessTab access={data.access} />}
+        </>
+      )}
+      {(can('countries:manage') || can('allowlist:manage')) && (
+        <div className="grid-2">
+          {can('countries:manage') && (
+            <Link to="/settings/countries" className="card card--interactive" style={{ color: 'inherit' }}>
+              <div className="card__body row-between"><div className="row"><Globe2 size={20} color="#0170B9" /><div><div className="text-strong">Countries</div><div className="text-muted" style={{ fontSize: 12.5 }}>Operating markets, currencies and default timezones</div></div></div><ArrowRight size={16} /></div>
+            </Link>
+          )}
+          {can('allowlist:manage') && (
+            <Link to="/settings/approved-hosts" className="card card--interactive" style={{ color: 'inherit' }}>
+              <div className="card__body row-between"><div className="row"><ShieldCheck size={20} color="#0170B9" /><div><div className="text-strong">Approved API hosts</div><div className="text-muted" style={{ fontSize: 12.5 }}>Outbound destinations allowed for platform APIs</div></div></div><ArrowRight size={16} /></div>
+            </Link>
+          )}
         </div>
       )}
-
-      <div className="settings-layout">
-        {/* Settings Navigation Tabs */}
-        <aside className="settings-nav-card card">
-          <button
-            type="button"
-            className={`settings-nav-btn ${activeTab === 'profile' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('profile'); setFeedback(null); }}
-          >
-            <User size={16} />
-            Profile Information
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-btn ${activeTab === 'security' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('security'); setFeedback(null); }}
-          >
-            <Shield size={16} />
-            Security & Passwords
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-btn ${activeTab === 'notifications' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('notifications'); setFeedback(null); }}
-          >
-            <Bell size={16} />
-            Notifications & Alerts
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-btn ${activeTab === 'preferences' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('preferences'); setFeedback(null); }}
-          >
-            <Sliders size={16} />
-            Platform Preferences
-          </button>
-
-          {user?.isSuperAdmin && (
-            <button
-              type="button"
-              className="settings-nav-btn"
-              onClick={() => window.location.href = '/countries'}
-              style={{ marginTop: '0.5rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.75rem', color: '#0284c7' }}
-            >
-              <Globe size={16} />
-              Country & Market Settings →
-            </button>
-          )}
-        </aside>
-
-        {/* Content Panel */}
-        <main className="settings-content-card card">
-          {activeTab === 'profile' && (
-            <form onSubmit={handleUpdateProfile} className="settings-form">
-              <h3 className="form-section-title">Profile Information</h3>
-              <p className="form-section-sub">Update your account display identity and communication email.</p>
-
-              <div className="form-group">
-                <label>Username</label>
-                <input type="text" className="form-control" value={profile.username} disabled />
-                <span className="field-caption">Usernames are immutable for audit compliance.</span>
-              </div>
-
-              <div className="form-group">
-                <label>Full Display Name</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={profile.name}
-                  onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Notification Email</label>
-                <input
-                  type="email"
-                  className="form-control"
-                  value={profile.email}
-                  onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-actions">
-                <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Saving...' : 'Save Profile Changes'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {activeTab === 'security' && (
-            <form onSubmit={handleUpdateSecurity} className="settings-form">
-              <h3 className="form-section-title">Security & Password</h3>
-              <p className="form-section-sub">Ensure your account uses a strong, complex password.</p>
-
-              <div className="form-group">
-                <label>Current Password</label>
-                <input
-                  type="password"
-                  className="form-control"
-                  value={passwords.currentPassword}
-                  onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>New Password</label>
-                <input
-                  type="password"
-                  className="form-control"
-                  value={passwords.newPassword}
-                  onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Confirm New Password</label>
-                <input
-                  type="password"
-                  className="form-control"
-                  value={passwords.confirmPassword}
-                  onChange={(e) => setPasswords({ ...passwords, confirmPassword: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-actions">
-                <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Updating...' : 'Change Password'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {activeTab === 'notifications' && (
-            <div className="settings-form">
-              <h3 className="form-section-title">Notifications & Subscriptions</h3>
-              <p className="form-section-sub">Configure real-time alerts for platform anomalies and billing events.</p>
-
-              <div className="toggle-setting-row">
-                <div>
-                  <strong>High Failure Rate Threshold Alerts</strong>
-                  <p>Send instant email alert when renewal failure exceeds 15% in a single batch.</p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={preferences.renewalAlerts}
-                  onChange={(e) => setPreferences({ ...preferences, renewalAlerts: e.target.checked })}
-                />
-              </div>
-
-              <div className="form-group" style={{ marginTop: '16px' }}>
-                <label>Churn Spike Alert Sensitivity (%)</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  style={{ maxWidth: '160px' }}
-                  value={preferences.churnWarningThreshold}
-                  onChange={(e) => setPreferences({ ...preferences, churnWarningThreshold: e.target.value })}
-                />
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'preferences' && (
-            <div className="settings-form">
-              <h3 className="form-section-title">Telemetry & Preferences</h3>
-              <p className="form-section-sub">Customize reporting dashboard behavior and defaults.</p>
-
-              <div className="form-group">
-                <label>Default CSV Export Encoding</label>
-                <select className="form-control" style={{ maxWidth: '240px' }} defaultValue="utf8">
-                  <option value="utf8">UTF-8 with BOM (Excel Compatible)</option>
-                  <option value="ascii">Standard ASCII</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>Dashboard Live Refresh Interval</label>
-                <select className="form-control" style={{ maxWidth: '240px' }} defaultValue="60">
-                  <option value="30">Every 30 seconds</option>
-                  <option value="60">Every 1 minute</option>
-                  <option value="300">Every 5 minutes</option>
-                  <option value="0">Manual Refresh Only</option>
-                </select>
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
     </div>
   );
 };
 
+export default SettingsPage;

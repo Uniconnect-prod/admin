@@ -1,18 +1,26 @@
-import { db } from '../models/db.js';
+import { auditRepository } from '../repositories/auditRepository.js';
 
-export async function logAudit(req, action, entity, entityId = null, metadata = {}) {
+/**
+ * Record an audit event. options.platformId / options.userId override the values taken
+ * from the request (e.g. during login, before req.user exists). Pass platformId: null for
+ * events that are not platform-scoped.
+ */
+export async function logAudit(req, action, entity, entityId = null, metadata = {}, options = {}) {
   try {
-    const userId = req.user?.id || null;
-    const platformId = req.activePlatform?.isAll ? null : (req.activePlatform?.id || null);
-    const ipAddress = req.ip || req.connection?.remoteAddress || '127.0.0.1';
-
-    await db.run(
-      `INSERT INTO audit_logs (user_id, platform_id, action, entity, entity_id, metadata, ip_address)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, platformId, action, entity, entityId ? String(entityId) : null, JSON.stringify(metadata), ipAddress]
-    );
+    const platformId = 'platformId' in options
+      ? options.platformId
+      : (req.activePlatform && !req.activePlatform.isAll ? req.activePlatform.id : null);
+    await auditRepository.insert({
+      userId: options.userId ?? req.user?.id ?? null,
+      platformId,
+      action,
+      entity,
+      entityId,
+      metadata,
+      ip: req.ip || null
+    });
   } catch (err) {
-    console.error('[Audit Logger] Error creating audit log:', err.message);
+    // Audit failures must never break the user request, but they must be visible to operators.
+    console.error(`[Audit] Failed to record ${action}: ${err.message}`);
   }
 }
-

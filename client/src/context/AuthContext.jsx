@@ -1,177 +1,231 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import api, { session, setSessionEndedHandler } from '../services/api';
 
 const AuthContext = createContext(null);
 
+const ALL_COUNTRIES = 'All Countries';
+
+function allPlatformsScope(country) {
+  return {
+    id: 'ALL',
+    code: 'ALL',
+    name: country && country !== ALL_COUNTRIES ? `All Platforms (${country})` : 'All Platforms',
+    isAll: true,
+    country: country && country !== ALL_COUNTRIES ? country : null
+  };
+}
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState(() => session.read('user'));
+  const [availablePlatforms, setAvailablePlatforms] = useState(() => session.read('platforms') || []);
+  const [activePlatform, setActivePlatformState] = useState(() => session.read('platform'));
+  const [selectedCountry, setSelectedCountry] = useState(() => sessionStorage.getItem('selectedCountry') || null);
+  const [countries, setCountries] = useState([]);
+  const [loading, setLoading] = useState(Boolean(session.token));
 
-  const [availablePlatforms, setAvailablePlatforms] = useState(() => {
-    const saved = localStorage.getItem('availablePlatforms');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [activePlatform, setActivePlatform] = useState(() => {
-    const saved = localStorage.getItem('activePlatform');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  const [loading, setLoading] = useState(true);
-
-  // Initialize session verification
-  useEffect(() => {
-    const initAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-      try {
-        const res = await api.get('/auth/me');
-        if (res.data?.success) {
-          const profile = res.data.data.user;
-          const platforms = res.data.data.availablePlatforms;
-          setUser(prev => ({ ...prev, ...profile }));
-          setAvailablePlatforms(platforms);
-          localStorage.setItem('availablePlatforms', JSON.stringify(platforms));
-
-          // Ensure active platform is still valid
-          setActivePlatform(current => {
-            if (!current && platforms.length > 0) {
-              const defaultP = profile.isSuperAdmin
-                ? { id: 'ALL', code: 'ALL', name: 'All Platforms', isAll: true }
-                : platforms[0];
-              localStorage.setItem('activePlatform', JSON.stringify(defaultP));
-              return defaultP;
-            }
-            return current;
-          });
-        }
-      } catch (err) {
-        console.error('Session validation error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initAuth();
+  const setActivePlatform = useCallback((p) => {
+    setActivePlatformState(p);
+    session.write('platform', p);
   }, []);
 
-  const login = async (username, password) => {
+  const resetLocalSession = useCallback(() => {
+    session.clear();
+    setUser(null);
+    setAvailablePlatforms([]);
+    setActivePlatformState(null);
+    setSelectedCountry(null);
+  }, []);
+
+  useEffect(() => {
+    setSessionEndedHandler(() => {
+      resetLocalSession();
+      if (!window.location.pathname.startsWith('/login')) window.location.assign('/login?expired=1');
+    });
+  }, [resetLocalSession]);
+
+  const applyPlatforms = useCallback((platforms, isSuperAdmin) => {
+    setAvailablePlatforms(platforms);
+    session.write('platforms', platforms);
+    // Keep the active platform only if it is still authorised.
+    setActivePlatformState(prev => {
+      let next = prev;
+      if (prev && !prev.isAll) {
+        const fresh = platforms.find(p => p.code === prev.code);
+        next = fresh || null;
+      }
+      if (!next || next.isAll) {
+        next = platforms.find(p => p.code === 'GHSUPERWININGS' || p.code === 'GHSUPERWINNINGS') || platforms[0] || (isSuperAdmin ? allPlatformsScope(sessionStorage.getItem('selectedCountry')) : null);
+      }
+      session.write('platform', next);
+      return next;
+    });
+  }, []);
+
+  // Validate the stored session on load and refresh the authorised platform list.
+  useEffect(() => {
+    if (!session.token) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    api.get('/auth/me')
+      .then((res) => {
+        if (cancelled) return;
+        const profile = res.data.data.user;
+        setUser(prev => {
+          const merged = { ...(prev || {}), ...profile };
+          session.write('user', merged);
+          return merged;
+        });
+        applyPlatforms(res.data.data.availablePlatforms, profile.isSuperAdmin);
+      })
+      .catch(() => {
+        if (!cancelled && !session.token) resetLocalSession();
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [applyPlatforms, resetLocalSession]);
+
+  useEffect(() => {
+    if (!user) return;
+    api.get('/countries', { params: { status: 'ACTIVE' } })
+      .then(res => setCountries(res.data.data || []))
+      .catch(() => setCountries([]));
+  }, [user]);
+
+  const availableCountries = useMemo(() => {
+    const fromPlatforms = availablePlatforms.map(p => p.country).filter(Boolean);
+    const fromDb = user?.isSuperAdmin ? countries.map(c => c.name) : [];
+    const list = [...new Set([...fromPlatforms, ...fromDb])].sort();
+    if (availablePlatforms.some(p => !p.country)) list.push('Unassigned');
+    return user?.isSuperAdmin ? [ALL_COUNTRIES, ...list] : list;
+  }, [availablePlatforms, countries, user?.isSuperAdmin]);
+
+  const platformsForCountry = useCallback((country) => {
+    if (!country || country === ALL_COUNTRIES) return availablePlatforms;
+    if (country === 'Unassigned') return availablePlatforms.filter(p => !p.country);
+    return availablePlatforms.filter(p => (p.country || '').toLowerCase() === country.toLowerCase());
+  }, [availablePlatforms]);
+
+  const platformsForSelectedCountry = useMemo(() => (selectedCountry ? platformsForCountry(selectedCountry) : []), [selectedCountry, platformsForCountry]);
+
+  const selectCountry = useCallback((country) => {
+    if (!country) {
+      setSelectedCountry(null);
+      sessionStorage.removeItem('selectedCountry');
+      return;
+    }
+    setSelectedCountry(country);
+    sessionStorage.setItem('selectedCountry', country);
+    const inCountry = platformsForCountry(country);
+    if (user?.isSuperAdmin) {
+      setActivePlatform(allPlatformsScope(country));
+    } else if (inCountry.length) {
+      setActivePlatform(inCountry[0]);
+    }
+  }, [platformsForCountry, setActivePlatform, user?.isSuperAdmin]);
+
+  const clearCountry = useCallback(() => selectCountry(null), [selectCountry]);
+
+  const switchPlatform = useCallback((target) => {
+    if (target === 'ALL' || target?.isAll) {
+      if (!user?.isSuperAdmin) return false;
+      setActivePlatform(allPlatformsScope(selectedCountry));
+      return true;
+    }
+    const code = typeof target === 'string' ? target : target?.code;
+    const match = availablePlatforms.find(p => p.code === code);
+    if (!match) return false;
+    setActivePlatform(match);
+    return true;
+  }, [availablePlatforms, selectedCountry, setActivePlatform, user?.isSuperAdmin]);
+
+  const login = useCallback(async (username, password) => {
     try {
       const res = await api.post('/auth/login', { username, password });
-      if (res.data?.success) {
-        const { token, refreshToken, user: userData, activePlatform: pData, availablePlatforms: pList } = res.data.data;
-
-        localStorage.setItem('token', token);
-        localStorage.setItem('refreshToken', refreshToken);
-        localStorage.setItem('user', JSON.stringify(userData));
-        localStorage.setItem('activePlatform', JSON.stringify(pData));
-        localStorage.setItem('availablePlatforms', JSON.stringify(pList));
-
-        setUser(userData);
-        setActivePlatform(pData);
-        setAvailablePlatforms(pList);
-        return { success: true };
-      }
-      return { success: false, message: res.data?.message || 'Login failed' };
+      const { token, refreshToken, user: profile, activePlatform: initial, availablePlatforms: platforms } = res.data.data;
+      session.setTokens(token, refreshToken);
+      session.write('user', profile);
+      session.write('platforms', platforms);
+      session.write('platform', initial);
+      sessionStorage.removeItem('selectedCountry');
+      setSelectedCountry(null);
+      setUser(profile);
+      setAvailablePlatforms(platforms);
+      setActivePlatformState(initial);
+      return { success: true };
     } catch (err) {
+      const data = err.response?.data;
       return {
         success: false,
-        code: err.response?.data?.code || 'AUTH_ERROR',
-        message: err.response?.data?.message || 'Network error or invalid credentials.'
+        code: data?.code || (err.response ? 'AUTH_ERROR' : 'NETWORK_ERROR'),
+        message: data?.message || (err.response ? 'Sign-in failed.' : 'Cannot reach the reporting server.')
       };
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
-      await api.post('/auth/logout');
-    } catch (e) {
-      // Ignore logout errors
-    } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
-      localStorage.removeItem('activePlatform');
-      localStorage.removeItem('availablePlatforms');
-      setUser(null);
-      setActivePlatform(null);
-      setAvailablePlatforms([]);
-      window.location.href = '/login';
+      await api.post('/auth/logout', { refreshToken: session.refreshToken });
+    } catch {
+      /* the local session is cleared regardless */
     }
-  };
+    resetLocalSession();
+    window.location.assign('/login');
+  }, [resetLocalSession]);
 
-  // Switch Active Platform
-  const switchPlatform = (platformCodeOrObj) => {
-    let target = null;
-    if (typeof platformCodeOrObj === 'object') {
-      target = platformCodeOrObj;
-    } else if (platformCodeOrObj === 'ALL' && user?.isSuperAdmin) {
-      target = { id: 'ALL', code: 'ALL', name: 'All Platforms', isAll: true };
-    } else {
-      target = availablePlatforms.find(
-        p => p.code?.toUpperCase() === platformCodeOrObj?.toUpperCase() ||
-             String(p.id) === String(platformCodeOrObj)
-      );
+  const refreshPlatforms = useCallback(async () => {
+    const res = await api.get('/platforms');
+    applyPlatforms(res.data.data, user?.isSuperAdmin);
+    return res.data.data;
+  }, [applyPlatforms, user?.isSuperAdmin]);
+
+  const activeRole = user?.isSuperAdmin ? 'Super Admin' : (activePlatform?.role || null);
+  const isPlatformAdminAnywhere = Boolean(user?.isSuperAdmin || availablePlatforms.some(p => p.role === 'Platform Admin'));
+
+  /**
+   * Client-side permission checks mirror the server rules (the server always enforces).
+   */
+  const can = useCallback((permission) => {
+    if (!user) return false;
+    switch (permission) {
+      case 'platforms:manage':
+      case 'users:manage':
+      case 'countries:manage':
+      case 'allowlist:manage':
+        return Boolean(user.isSuperAdmin);
+      case 'users:view':
+      case 'audit:view':
+        return isPlatformAdminAnywhere;
+      case 'export':
+        return Boolean(user.isSuperAdmin || ['Platform Admin', 'Analyst'].includes(activePlatform?.role));
+      default:
+        return false;
     }
+  }, [user, isPlatformAdminAnywhere, activePlatform?.role]);
 
-    if (!target) {
-      console.warn('Unauthorized platform switch attempt rejected.');
-      return false;
-    }
+  const value = useMemo(() => ({
+    user,
+    loading,
+    isAuthenticated: Boolean(user && session.token),
+    activePlatform,
+    activeRole,
+    availablePlatforms,
+    selectedCountry,
+    availableCountries,
+    platformsForSelectedCountry,
+    countries,
+    selectCountry,
+    clearCountry,
+    switchPlatform,
+    refreshPlatforms,
+    login,
+    logout,
+    can
+  }), [user, loading, activePlatform, activeRole, availablePlatforms, selectedCountry, availableCountries, platformsForSelectedCountry, countries, selectCountry, clearCountry, switchPlatform, refreshPlatforms, login, logout, can]);
 
-    // Update active platform and save
-    setActivePlatform(target);
-    localStorage.setItem('activePlatform', JSON.stringify(target));
-
-    // Update user's active role for this platform
-    if (!user?.isSuperAdmin && target.role) {
-      const updatedUser = { ...user, activeRole: target.role };
-      setUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-    }
-
-    return true;
-  };
-
-  // Refresh available platforms list from backend
-  const refreshPlatforms = async () => {
-    try {
-      const res = await api.get('/platforms');
-      if (res.data?.success) {
-        const platforms = res.data.data;
-        setAvailablePlatforms(platforms);
-        localStorage.setItem('availablePlatforms', JSON.stringify(platforms));
-        return platforms;
-      }
-    } catch (e) {
-      console.warn('Failed to refresh platforms:', e);
-    }
-    return availablePlatforms;
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        activePlatform,
-        availablePlatforms,
-        loading,
-        login,
-        logout,
-        switchPlatform,
-        refreshPlatforms,
-        isAuthenticated: !!user && !!localStorage.getItem('token')
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);
-
+export { ALL_COUNTRIES };

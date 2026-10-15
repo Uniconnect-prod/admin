@@ -1,377 +1,177 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  Eye, EyeOff, Lock, User, Layers, ShieldCheck, AlertCircle, ArrowRight, 
-  Zap, Film, Gamepad2, Music, HelpCircle, ChevronLeft, ChevronRight, PlayCircle
-} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Eye, EyeOff, Lock, User, ShieldCheck, AlertCircle, ArrowRight, ChevronLeft, ChevronRight, Loader2, Info } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { PlatformLogo } from '../../components/common/PlatformBadge';
 import api from '../../services/api';
 import './LoginPage.scss';
 
-// Fallback platforms showcase data
 const DEFAULT_SHOWCASE = [
   {
-    code: 'GHSNAPFLIX',
-    name: 'GHSnapflix',
-    tagline: "Ghana's Premier Video On Demand & African Cinema",
-    description: "Stream trending blockbuster movies, Nollywood hits, local Ghallywood cinema, and exclusive daily episodic series anywhere.",
-    bgImage: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=1200&q=80',
-    badge: 'Video Streaming',
-    accentColor: '#FFCC00',
-    icon: Film,
-    stats: [
-      { label: 'Active Streamers', value: '190K+' },
-      { label: 'Video Catalog', value: '1,450+ Titles' },
-      { label: 'Avg Watch Time', value: '42m/day' }
-    ]
-  },
-  {
-    code: 'GHGAMEZONE',
-    name: 'GHGameZone',
-    tagline: 'Ultimate Cloud & Mobile HTML5 Gaming Arena',
-    description: 'Compete in daily tournament leaderboards, high-stakes arcade battles, action racing, and multi-player tournaments with instant MoMo rewards.',
-    bgImage: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1200&q=80',
-    badge: 'Cloud Gaming',
-    accentColor: '#00E5FF',
-    icon: Gamepad2,
-    stats: [
-      { label: 'Daily Gamers', value: '142K+' },
-      { label: 'Instant Games', value: '380+ Games' },
-      { label: 'Prize Pool Paid', value: 'GHC 240K' }
-    ]
-  },
-  {
-    code: 'GHMUSIC',
-    name: 'GHMusic',
-    tagline: 'Afrobeats, Highlife & Live Gospel Streaming Hub',
-    description: "Unlimited high-fidelity streaming, offline downloads, curated DJ playlists, and artist monetization for West Africa's finest talent.",
-    bgImage: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80',
-    badge: 'Music & Audio',
-    accentColor: '#FF6B00',
-    icon: Music,
-    stats: [
-      { label: 'Subscribers', value: '115K+' },
-      { label: 'Audio Tracks', value: '250K+ Songs' },
-      { label: 'Live Radio', value: '24/7 Airtime' }
-    ]
-  },
-  {
-    code: 'GHQUIZ',
-    name: 'GHQuiz',
-    tagline: 'Daily Trivia, Brain Battles & Instant MoMo Prizes',
-    description: 'Interactive SMS and web trivia challenges covering sports, general knowledge, pop culture, and science with real-time cash payouts.',
-    bgImage: 'https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=1200&q=80',
-    badge: 'Trivia & Rewards',
-    accentColor: '#00E676',
-    icon: HelpCircle,
-    stats: [
-      { label: 'Quiz Masters', value: '78K+' },
-      { label: 'Daily Winners', value: '1,200+' },
-      { label: 'Win Rate', value: '34.2%' }
-    ]
+    code: 'UNISOLUTION_CORE',
+    name: 'Mobile Technology',
+    highlight: 'Solution',
+    badge: 'Telecom & Digital Solutions',
+    description: 'Pioneering innovative mobile solutions and high-performance telecom technologies for leading operators worldwide.',
+    bgImage: '/brand/unisolution_hero.jpg',
+    stats: []
   }
 ];
 
+const ACCESS_HINTS = {
+  PLATFORM_ACCESS_EXPIRED: 'Your authorisation period has ended. Contact your administrator to renew access.',
+  PLATFORM_ACCESS_UPCOMING: 'Your authorisation has not started yet. You can sign in from the start date.',
+  PLATFORM_ACCESS_REVOKED: 'Your platform authorisation has been revoked by an administrator.',
+  NO_PLATFORMS_ASSIGNED: 'No platforms are assigned to this account yet.',
+  RATE_LIMITED: 'Too many sign-in attempts. Please wait a few minutes before trying again.'
+};
+
 export const LoginPage = () => {
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading: sessionLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [params] = useSearchParams();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [errorDetails, setErrorDetails] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [showHelp, setShowHelp] = useState(false);
 
-  // Carousel State
   const [slides, setSlides] = useState(DEFAULT_SHOWCASE);
   const [activeSlide, setActiveSlide] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+  const [paused, setPaused] = useState(false);
   const timerRef = useRef(null);
 
-  // Fetch showcase from backend API if available
   useEffect(() => {
-    const fetchShowcase = async () => {
-      try {
-        const res = await api.get('/platforms/showcase');
-        if (res.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
-          const iconMap = {
-            GHSNAPFLIX: Film,
-            GHGAMEZONE: Gamepad2,
-            GHMUSIC: Music,
-            GHQUIZ: HelpCircle
-          };
-          const mapped = res.data.data.map(item => ({
-            ...item,
-            icon: iconMap[item.code] || PlayCircle
-          }));
-          setSlides(mapped);
-        }
-      } catch (err) {
-        console.warn('Using fallback showcase data:', err.message);
-      }
-    };
-    fetchShowcase();
+    api.get('/platforms/showcase')
+      .then(res => { if (Array.isArray(res.data?.data) && res.data.data.length) setSlides(res.data.data); })
+      .catch(() => { /* keep the built-in slide */ });
   }, []);
 
-  // Automated Slideshow transition timer (every 5 seconds)
   useEffect(() => {
-    if (isPaused || slides.length === 0) return;
+    if (paused || slides.length < 2) return undefined;
+    timerRef.current = setInterval(() => setActiveSlide(p => (p + 1) % slides.length), 6500);
+    return () => clearInterval(timerRef.current);
+  }, [slides.length, paused, activeSlide]);
 
-    timerRef.current = setInterval(() => {
-      setActiveSlide(prev => (prev + 1) % slides.length);
-    }, 5000);
+  if (!sessionLoading && isAuthenticated) return <Navigate to="/overview" replace />;
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [slides.length, isPaused, activeSlide]);
+  const current = slides[activeSlide] || DEFAULT_SHOWCASE[0];
+  const from = location.state?.from && !location.state.from.startsWith('/login') ? location.state.from : '/overview';
 
-  const handlePrevSlide = () => {
-    setActiveSlide(prev => (prev === 0 ? slides.length - 1 : prev - 1));
-  };
-
-  const handleNextSlide = () => {
-    setActiveSlide(prev => (prev + 1) % slides.length);
-  };
-
-  const currentSlide = slides[activeSlide] || DEFAULT_SHOWCASE[0];
-  const CurrentIcon = currentSlide.icon || PlayCircle;
-
-  // Single Sign-In Submission (NO platform sent from frontend)
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setErrorMessage('');
-    setErrorDetails(null);
-    setLoading(true);
-
-    const result = await login(username, password);
-    setLoading(false);
-
-    if (result.success) {
-      navigate('/dashboard');
-    } else {
-      setErrorMessage(result.message);
-      setErrorDetails(result.code);
-    }
+    setError(null);
+    setSubmitting(true);
+    const result = await login(username.trim(), password);
+    setSubmitting(false);
+    if (result.success) navigate(from, { replace: true });
+    else setError(result);
   };
 
-
-
   return (
-    <div className="login-container">
-      {/* Left side automated slideshow carousel with black gradient layer */}
-      <div 
-        className="login-hero-carousel"
-        onMouseEnter={() => setIsPaused(true)}
-        onMouseLeave={() => setIsPaused(false)}
-      >
-        {/* Background Slides */}
-        {slides.map((slide, idx) => (
-          <div
-            key={slide.code || idx}
-            className={`carousel-bg-slide ${idx === activeSlide ? 'active' : ''}`}
-            style={{ backgroundImage: `url(${slide.bgImage})` }}
-          />
+    <div className="login">
+      <section className="login__hero" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} aria-label="UNI.SOLUTION">
+        {slides.map((s, i) => (
+          <div key={s.code || i} className={`login__bg ${i === activeSlide ? 'is-active' : ''}`} style={{ backgroundImage: `url(${s.bgImage || '/brand/unisolution_hero.jpg'})` }} />
         ))}
-
-        {/* Heavy Black Gradient Overlay */}
-        <div className="carousel-black-gradient" />
-
-        {/* Ambient Platform Accent Glow */}
-        <div className="carousel-glow-accent" />
-
-        {/* Carousel Content */}
-        <div className="hero-carousel-content">
-          {/* Top Brand Bar */}
-          <div className="hero-brand">
-            <PlatformLogo platformCode={currentSlide.code} size="md" />
-            <div className="brand-titles">
-              <h2>{currentSlide.name}</h2>
-              <p>Multi-Platform Report Management System</p>
-            </div>
+        <div className="login__overlay" />
+        <div className="login__hero-inner">
+          <div className="login__brand">
+            <img src="/brand/unisolution_logo_dark.png" alt="UNI.SOLUTION" />
           </div>
 
-          {/* Center Platform Feature Showcase */}
-          <div className="carousel-platform-body" key={currentSlide.code}>
-            <div className="platform-meta-pill">
-              <CurrentIcon size={15} className="pill-icon" />
-              <span>{currentSlide.badge}</span>
-              <span className="pill-separator">•</span>
-              <span className="pill-status">Active Platform</span>
-            </div>
-
-            <h1 className="platform-title">
-              {currentSlide.name}
+          <div className="login__slide" key={current.code}>
+            <span className="login__pill"><span className="login__pulse" />{current.badge}</span>
+            <h1>
+              {current.name}{' '}
+              {current.highlight && <span>{current.highlight}</span>}
             </h1>
-
-            <p className="platform-tagline">
-              {currentSlide.tagline}
-            </p>
-
-            <p className="platform-description">
-              {currentSlide.description}
-            </p>
-
-            {/* Platform Stats Pills */}
-            {currentSlide.stats && currentSlide.stats.length > 0 && (
-              <div className="platform-stats-grid">
-                {currentSlide.stats.map((st, i) => (
-                  <div className="stat-card" key={i}>
-                    <span className="stat-value">{st.value}</span>
-                    <span className="stat-label">{st.label}</span>
-                  </div>
+            <p>{current.description}</p>
+            {current.stats?.length > 0 && (
+              <div className="login__stats">
+                {current.stats.map(st => (
+                  <div key={st.label}><strong>{st.value}</strong><span>{st.label}</span></div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Carousel Footer Controls */}
-          <div className="carousel-controls-bar">
-            {/* Progress dots */}
-            <div className="carousel-dots">
-              {slides.map((s, idx) => (
-                <button
-                  key={s.code || idx}
-                  type="button"
-                  className={`dot ${idx === activeSlide ? 'active' : ''}`}
-                  onClick={() => setActiveSlide(idx)}
-                  title={s.name}
-                >
-                  <span className="dot-inner" />
-                </button>
-              ))}
+          {slides.length > 1 && (
+            <div className="login__controls">
+              <div className="login__dots">
+                {slides.map((s, i) => (
+                  <button key={s.code || i} type="button" className={i === activeSlide ? 'is-active' : ''} onClick={() => setActiveSlide(i)} aria-label={`Show slide ${i + 1}`} />
+                ))}
+              </div>
+              <div className="login__arrows">
+                <button type="button" onClick={() => setActiveSlide(p => (p === 0 ? slides.length - 1 : p - 1))} aria-label="Previous slide"><ChevronLeft size={18} /></button>
+                <span>{activeSlide + 1} / {slides.length}</span>
+                <button type="button" onClick={() => setActiveSlide(p => (p + 1) % slides.length)} aria-label="Next slide"><ChevronRight size={18} /></button>
+              </div>
             </div>
-
-            {/* Arrows */}
-            <div className="carousel-nav-arrows">
-              <button
-                type="button"
-                className="nav-arrow-btn"
-                onClick={handlePrevSlide}
-                aria-label="Previous Slide"
-              >
-                <ChevronLeft size={18} />
-              </button>
-              <span className="slide-counter">
-                {activeSlide + 1} / {slides.length}
-              </span>
-              <button
-                type="button"
-                className="nav-arrow-btn"
-                onClick={handleNextSlide}
-                aria-label="Next Slide"
-              >
-                <ChevronRight size={18} />
-              </button>
-            </div>
-          </div>
+          )}
         </div>
-      </div>
+      </section>
 
-      {/* Right side login form */}
-      <div className="login-form-wrapper">
-        <div className="login-box card">
-          <div className="login-header">
-            <div className="login-logo-mobile">
-              <PlatformLogo platformCode="ALL" size="lg" />
-            </div>
-            <h2>Sign In to Portal</h2>
-            <p>Single sign-in access. Authorized platforms and active dates are verified dynamically.</p>
+      <section className="login__panel">
+        <div className="login__card">
+          <img className="login__mobile-logo" src="/brand/unisolution_logo.png" alt="UNI.SOLUTION" />
+          <div className="login__heading">
+            <span className="eyebrow">Reporting Platform</span>
+            <h2>Sign in to your account</h2>
+            <p>Multi-platform subscription, billing and revenue reporting.</p>
           </div>
 
-          {errorMessage && (
-            <div className={`login-alert-error ${errorDetails ? `error-${errorDetails.toLowerCase()}` : ''}`}>
-              <AlertCircle size={18} className="alert-icon" />
-              <div className="alert-text">
-                <strong>{errorMessage}</strong>
-                {errorDetails === 'PLATFORM_ACCESS_EXPIRED' && (
-                  <p className="error-subtext">Your authorization period has ended. Contact your system administrator to renew access.</p>
-                )}
-                {errorDetails === 'PLATFORM_ACCESS_UPCOMING' && (
-                  <p className="error-subtext">Your authorization has not started yet. Please wait until the start date.</p>
-                )}
-                {errorDetails === 'PLATFORM_ACCESS_REVOKED' && (
-                  <p className="error-subtext">Your platform authorization has been revoked by an administrator.</p>
-                )}
-                {errorDetails === 'NO_ASSIGNED_PLATFORMS' && (
-                  <p className="error-subtext">No active platforms are assigned to this user account.</p>
-                )}
+          {params.get('expired') && !error && (
+            <div className="alert alert--warning"><Info size={17} /><div className="alert__body">Your session ended. Please sign in again.</div></div>
+          )}
+
+          {error && (
+            <div className="alert alert--danger" role="alert">
+              <AlertCircle size={17} />
+              <div className="alert__body">
+                <div className="alert__title">{error.message}</div>
+                {ACCESS_HINTS[error.code] && <span>{ACCESS_HINTS[error.code]}</span>}
               </div>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="login-form">
-            {/* Username or Email */}
-            <div className="form-group">
-              <label>Username or Email</label>
-              <div className="input-icon-wrapper">
-                <User size={16} className="input-icon" />
-                <input
-                  type="text"
-                  placeholder="Enter username or email"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="form-control with-icon"
-                  required
-                />
+          <form onSubmit={handleSubmit} className="login__form" noValidate>
+            <div className="field">
+              <label className="field__label" htmlFor="login-username">Username or email</label>
+              <div className="input-group">
+                <User size={16} />
+                <input id="login-username" className="input input--lg" autoComplete="username" placeholder="you@company.com" value={username} onChange={e => setUsername(e.target.value)} required autoFocus />
               </div>
             </div>
-
-            {/* Password */}
-            <div className="form-group">
-              <label>Password</label>
-              <div className="input-icon-wrapper">
-                <Lock size={16} className="input-icon" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="form-control with-icon password-input"
-                  required
-                />
-                <button
-                  type="button"
-                  className="password-toggle-btn"
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label="Toggle password visibility"
-                >
+            <div className="field">
+              <label className="field__label" htmlFor="login-password">Password</label>
+              <div className="input-group">
+                <Lock size={16} />
+                <input id="login-password" className="input input--lg" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} required />
+                <button type="button" className="input-group__suffix btn btn--ghost btn--icon btn--sm" onClick={() => setShowPassword(s => !s)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            {/* Remember Me & Forgot Password */}
-            <div className="form-options">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span>Remember me</span>
-              </label>
-
-              <a href="#forgot" className="forgot-link" onClick={(e) => { e.preventDefault(); alert('Password recovery: Please contact system administrator.'); }}>
-                Forgot password?
-              </a>
-            </div>
-
-            {/* Login Button */}
-            <button type="submit" className="btn btn-primary login-btn" disabled={loading}>
-              {loading ? 'Authenticating...' : (
-                <>
-                  Sign In to Platform
-                  <ArrowRight size={16} />
-                </>
-              )}
+            <button type="submit" className="btn btn--primary btn--lg btn--block" disabled={submitting || !username.trim() || !password}>
+              {submitting ? <><Loader2 size={17} className="spin" /> Signing in…</> : <>Sign in <ArrowRight size={17} /></>}
             </button>
           </form>
+
+          <button type="button" className="login__help" onClick={() => setShowHelp(s => !s)} aria-expanded={showHelp}>Trouble signing in?</button>
+          {showHelp && (
+            <p className="login__help-text">Passwords are reset by a Super Admin from <em>Users &amp; Access Control</em>. Contact your administrator if you've forgotten your password or your access has expired.</p>
+          )}
+
+          <div className="login__secure"><ShieldCheck size={14} /> Secured access · UNI.SOLUTION</div>
         </div>
-      </div>
+      </section>
     </div>
   );
 };
+
+export default LoginPage;

@@ -1,118 +1,91 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import React, { lazy, Suspense } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { DashboardLayout } from '../layouts/DashboardLayout';
+import { AppShell } from '../layouts/AppShell';
 import { LoginPage } from '../pages/auth/LoginPage';
-import { DashboardPage } from '../pages/dashboard/DashboardPage';
-import { SubscribersPage } from '../pages/subscribers/SubscribersPage';
-import { ChurnPage } from '../pages/churn/ChurnPage';
-import { ReportsHubPage } from '../pages/reports/ReportsHubPage';
-import { RevenueReportPage } from '../pages/reports/RevenueReportPage';
-import { GrowthReportPage } from '../pages/reports/GrowthReportPage';
-import { PlatformPerformancePage } from '../pages/reports/PlatformPerformancePage';
-import { QuizzesListPage } from '../pages/quizzes/QuizzesListPage';
-import { QuizUploadPage } from '../pages/quizzes/QuizUploadPage';
-import { UsersPage } from '../pages/users/UsersPage';
-import { PlatformsPage } from '../pages/platforms/PlatformsPage';
-import { CountriesPage } from '../pages/countries/CountriesPage';
-import { ActivityLogsPage } from '../pages/activity/ActivityLogsPage';
-import { SettingsPage } from '../pages/settings/SettingsPage';
+import { UnauthorizedPage, NotFoundPage, FullPageLoader, ErrorBoundary } from '../pages/system/SystemPages';
+import { KpiSkeletonGrid } from '../components/ui/feedback';
 
-// Protected Route Guard
-const ProtectedRoute = ({ children }) => {
+const OverviewPage = lazy(() => import('../pages/overview/OverviewPage'));
+const SettlementReportPage = lazy(() => import('../pages/reports/SettlementReportPage'));
+const AnalyticsPage = lazy(() => import('../pages/reports/AnalyticsPage'));
+const SubscribersPage = lazy(() => import('../pages/subscribers/SubscribersPage'));
+const PlatformsListPage = lazy(() => import('../pages/platforms/PlatformsListPage'));
+const PlatformWizardPage = lazy(() => import('../pages/platforms/PlatformWizardPage'));
+const PlatformIndexPage = lazy(() => import('../pages/platforms/PlatformIndexPage'));
+const IntegrationHistoryPage = lazy(() => import('../pages/platforms/IntegrationHistoryPage'));
+const UsersPage = lazy(() => import('../pages/users/UsersPage'));
+const AuditLogsPage = lazy(() => import('../pages/audit/AuditLogsPage'));
+const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
+const CountriesPage = lazy(() => import('../pages/settings/CountriesPage'));
+const ApprovedHostsPage = lazy(() => import('../pages/settings/ApprovedHostsPage'));
+
+const RequireAuth = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', color: '#64748b' }}>
-        Authenticating enterprise session...
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
+  const location = useLocation();
+  if (loading) return <FullPageLoader label="Verifying your session…" />;
+  if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
   return children;
 };
 
-// Role Guard for specific admin routes
-const SuperAdminGuard = ({ children }) => {
-  const { user } = useAuth();
-  if (!user?.isSuperAdmin) {
-    return <Navigate to="/dashboard" replace />;
-  }
+const RequirePermission = ({ permission, children }) => {
+  const { can } = useAuth();
+  if (!can(permission)) return <UnauthorizedPage />;
   return children;
 };
 
-export const AppRouter = () => {
+const Page = ({ children }) => {
+  const location = useLocation();
   return (
-    <Routes>
-      {/* Public Routes */}
-      <Route path="/login" element={<LoginPage />} />
-
-      {/* Protected SaaS Layout Routes */}
-      <Route
-        element={
-          <ProtectedRoute>
-            <DashboardLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/subscribers" element={<SubscribersPage />} />
-        <Route path="/churn" element={<ChurnPage />} />
-
-        {/* Reports */}
-        <Route path="/reports" element={<ReportsHubPage />} />
-        <Route path="/reports/revenue" element={<RevenueReportPage />} />
-        <Route path="/reports/growth" element={<GrowthReportPage />} />
-        <Route
-          path="/reports/platform-comparison"
-          element={
-            <SuperAdminGuard>
-              <PlatformPerformancePage />
-            </SuperAdminGuard>
-          }
-        />
-
-        {/* Content Management */}
-        <Route path="/quizzes" element={<QuizzesListPage />} />
-        <Route path="/quizzes/upload" element={<QuizUploadPage />} />
-
-        {/* User Management */}
-        <Route path="/users" element={<UsersPage />} />
-
-        {/* Platform Management (Super Admin) */}
-        <Route
-          path="/platforms"
-          element={
-            <SuperAdminGuard>
-              <PlatformsPage />
-            </SuperAdminGuard>
-          }
-        />
-
-        {/* Country Management (Super Admin) */}
-        <Route
-          path="/countries"
-          element={
-            <SuperAdminGuard>
-              <CountriesPage />
-            </SuperAdminGuard>
-          }
-        />
-
-        {/* System */}
-        <Route path="/activity-logs" element={<ActivityLogsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-      </Route>
-
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+    <ErrorBoundary resetKey={location.pathname}>
+      <Suspense fallback={<KpiSkeletonGrid />}>{children}</Suspense>
+    </ErrorBoundary>
   );
 };
 
+const SA = ({ children }) => <RequirePermission permission="platforms:manage"><Page>{children}</Page></RequirePermission>;
+
+export const AppRouter = () => (
+  <Routes>
+    <Route path="/login" element={<LoginPage />} />
+
+    <Route element={<RequireAuth><AppShell /></RequireAuth>}>
+      <Route index element={<Navigate to="/overview" replace />} />
+      <Route path="/overview" element={<Page><OverviewPage /></Page>} />
+
+      <Route path="/platforms" element={<SA><PlatformsListPage /></SA>} />
+      <Route path="/platforms/new" element={<SA><PlatformWizardPage /></SA>} />
+      <Route path="/platforms/api-configuration" element={<SA><PlatformIndexPage mode="api" /></SA>} />
+      <Route path="/platforms/data-mapping" element={<SA><PlatformIndexPage mode="mapping" /></SA>} />
+      <Route path="/platforms/history" element={<SA><IntegrationHistoryPage /></SA>} />
+      <Route path="/platforms/:id" element={<SA><PlatformWizardPage /></SA>} />
+
+      <Route path="/reports/settlement" element={<Page><SettlementReportPage /></Page>} />
+      <Route path="/reports/revenue" element={<Page><AnalyticsPage section="revenue" /></Page>} />
+      <Route path="/reports/subscribers" element={<Page><AnalyticsPage section="subscribers" /></Page>} />
+      <Route path="/reports/renewals" element={<Page><AnalyticsPage section="renewals" /></Page>} />
+      <Route path="/reports/churn" element={<Page><AnalyticsPage section="churn" /></Page>} />
+      <Route path="/subscribers" element={<Page><SubscribersPage /></Page>} />
+
+      <Route path="/users" element={<RequirePermission permission="users:view"><Page><UsersPage /></Page></RequirePermission>} />
+      <Route path="/audit-logs" element={<RequirePermission permission="audit:view"><Page><AuditLogsPage /></Page></RequirePermission>} />
+      <Route path="/settings" element={<Page><SettingsPage /></Page>} />
+      <Route path="/settings/countries" element={<RequirePermission permission="countries:manage"><Page><CountriesPage /></Page></RequirePermission>} />
+      <Route path="/settings/approved-hosts" element={<RequirePermission permission="allowlist:manage"><Page><ApprovedHostsPage /></Page></RequirePermission>} />
+      <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
+      {/* Legacy paths from the previous navigation */}
+      <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
+      <Route path="/churn" element={<Navigate to="/reports/churn" replace />} />
+      <Route path="/reports" element={<Navigate to="/reports/settlement" replace />} />
+      <Route path="/reports/growth" element={<Navigate to="/reports/subscribers" replace />} />
+      <Route path="/reports/platform-comparison" element={<Navigate to="/overview" replace />} />
+      <Route path="/activity-logs" element={<Navigate to="/audit-logs" replace />} />
+      <Route path="/countries" element={<Navigate to="/settings/countries" replace />} />
+
+      <Route path="*" element={<NotFoundPage />} />
+    </Route>
+  </Routes>
+);
+
+export default AppRouter;

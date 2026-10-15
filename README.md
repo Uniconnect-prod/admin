@@ -1,620 +1,323 @@
-# Multi-Platform Enterprise Report Management System
+# UNI.SOLUTION Multi-Platform Reporting
 
-A high-performance, multi-tenant analytics, subscriber telemetry, and date-wise authorization reporting dashboard built for digital consumer platforms: **ghsuperwinings**, **ghanagameium**, and **crazymuzik**.
+API-driven reporting dashboard for subscription/VAS platforms. The reporting application owns the
+dashboard, analytics presentation, users and access control; **each registered platform supplies
+its data through its own backend API**. The reporting server never connects to a platform's
+production database.
 
----
-
-## 🌐 Live Deployments
-- **Production Frontend (Vercel)**: [https://reporting-dash-ofa2.vercel.app/](https://reporting-dash-ofa2.vercel.app/)
-- **Production Backend API (Render)**: [https://reporting-dash-kxeu.onrender.com/](https://reporting-dash-kxeu.onrender.com/)
-
----
-
-## 📑 Table of Contents
-1. [Architecture & Tech Stack](#-architecture--tech-stack)
-2. [Key System Features & Dashboard Layout](#-key-system-features--dashboard-layout)
-3. [Project Structure](#-project-structure)
-4. [Quick Start & Setup](#-quick-start--setup)
-5. [Authorized System Accounts & Credentials](#-authorized-system-accounts--credentials)
-6. [Database Architecture & Security Proxies](#-database-architecture--security-proxies)
-7. [Platform-Based Authorization & Date-Wise Access Engine](#-platform-based-authorization--date-wise-access-engine)
-8. [Complete API Specification](#-complete-api-specification)
-   - [1. Authentication & Single Sign-In](#1-authentication--single-sign-in)
-   - [2. Public Platform Showcase](#2-public-platform-showcase)
-   - [3. Platforms Discovery & Scope](#3-platforms-discovery--scope)
-   - [4. Dashboard Telemetry & Platform Comparison](#4-dashboard-telemetry--platform-comparison)
-   - [5. Subscribers Management](#5-subscribers-management)
-   - [6. Renewals & Billing Telemetry](#6-renewals--billing-telemetry)
-   - [7. Churn Cohort Analytics](#7-churn-cohort-analytics)
-   - [8. Quizzes & Content Management](#8-quizzes--content-management)
-   - [9. User Management & Date-Wise Access Control](#9-user-management--date-wise-access-control)
-   - [10. Streaming CSV Export](#10-streaming-csv-export)
-   - [11. Dynamic Platform Management & Multi-Tenant Registry](#11-dynamic-platform-management--multi-tenant-registry)
-9. [Troubleshooting & Common Issues](#-troubleshooting--common-issues)
-10. [Automated Verification Suite](#-automated-verification-suite)
+- **Frontend** (`client/`): React 19 + Vite, JavaScript, SCSS, React Router 7, Recharts, lucide-react
+- **Backend** (`server/`): Node.js (≥ 20) + Express, ES modules
+- **Reporting admin database**: MongoDB (users, roles, access windows, platform configuration,
+  encrypted API credentials, audit logs, connection history). An in-memory store is available for
+  tests and local development.
 
 ---
 
-## 🛠 Architecture & Tech Stack
+## Contents
 
-### Frontend (`/client`)
-- **Framework**: React 19 + Vite
-- **Language**: JavaScript (ES modules, strictly no TypeScript)
-- **Styling**: SCSS with modular tokens, mixins, responsive breakpoints, and dark gradient overlays
-- **Routing**: React Router DOM v7
-- **HTTP Client**: Axios with interceptors for JWT injection, active platform headers (`x-platform-code`, `x-platform-id`), and auto-refresh
-- **Charts & Visualizations**: Recharts (Interactive Bar, Area, Line, Donut charts)
-- **Icons**: Lucide React
-- **Branding**: Dynamic platform emblems and automated hero carousel
-
-### Backend (`/server`)
-- **Runtime**: Node.js & Express (ES modules)
-- **Database Architecture**:
-  - **Live Production MongoDB (READ-ONLY Source)**: Directly queries and aggregates live production collections (`ghsuperwinings`, `ghanagameium`, `crazymuzik`) using native `MongoClient` with read preference `secondaryPreferred`. Strictly guarded via a JavaScript security proxy that rejects any write, insert, update, delete, or drop operations.
-  - **Reporting Admin MongoDB**: Dedicated administrative database (`gh_reporting_admin`) for application-owned authentication, admin users, roles, platform access configuration, date-wise access validity windows, and audit logs.
-- **Security & Middleware**:
-  - Strict read-only proxy guarding live source production collections
-  - JWT authentication (short-lived access tokens + rotating refresh tokens)
-  - Date-wise authorization engine with real-time UTC timestamp evaluation
-  - Strict Role-Based Access Control (RBAC) with `requireSuperAdmin` and `platformGuard`
-  - Tenant header isolation (`X-Platform-ID` / `x-platform-code`)
-  - Helmet security headers and CORS protection
-  - Rate limiting on authentication routes
-- **Logging**: Audit logging on data modifications and operator access events
+1. [Architecture](#architecture)
+2. [Local setup](#local-setup)
+3. [Environment variables](#environment-variables)
+4. [Adding a platform](#adding-a-platform)
+5. [Integration engine](#integration-engine)
+6. [Reporting rules](#reporting-rules)
+7. [Security model](#security-model)
+8. [GHSuperWinnings integration status](#ghsuperwinnings-integration-status)
+9. [API reference](#api-reference)
+10. [Tests](#tests)
+11. [Upgrading from the direct-MongoDB version](#upgrading-from-the-direct-mongodb-version)
 
 ---
 
-## ✨ Key System Features & Dashboard Layout
+## Architecture
 
-### 1. Dedicated GHSUPERWINNINGS Analytics Dashboard
-The dashboard has been simplified and focused exclusively on the **GHSUPERWINNINGS** platform:
-- **Platform Code**: `GHSUPERWINNINGS` (database name: `ghsuperwinings`, ID: `1`)
-- **Strict Read-Only Mode**: Zero MongoDB write operations against production collections. Guarded via the native security proxy.
-- **Dynamic Date Evaluation**: Date boundaries calculated using business timezone `Africa/Accra` (UTC+0).
-- **60-Second Auto-Refresh**: Background polling with automatic Axios request cancellation (`AbortController`) on component unmount.
-- **Resilient States**: Shimmer skeleton loaders while fetching (no fake zeros) and explicit error state with Retry capability.
-
-### 2. 4 Primary Business KPI Cards
-- **Today's Renewals / Total Renewals**: Successful, billed renewal transactions (`command = 'NotifyRenewal'`, `chargeAmount > 0`, and `status = 'A'`) processed today in `Africa/Accra`. Explicitly excludes failed transactions (`status = 'S'`, insufficient balance, 0 charge) so counts reflect real monetized renewals (~4,052 vs raw 21k unbilled callbacks). Dynamically labels as "Total Renewals" when viewing custom date ranges.
-- **Total Subscribers**: Authoritative subscriber base loaded directly from the production subscriber registry: `users` collection for `ghsuperwinings` (23,584 unique subscribers) and `subscriptions` collection for `ghanagameium` (4,456 subscribers). Aligned with the [Subscribers Management] module.
-- **Active Subscribers**: Real-time active subscriber count evaluated from the production registry (`subscriptionStatus: 'active'`), representing 4,000 active subscribers for SuperWinnings and 485 for Gameium.
-- **Gross Billing (Revenue)**: Total settlement billing revenue in GHC generated from billed transactions (`chargeAmount` from `sdplog`). Synchronized directly with the Business Settlement Report (`totals.grandTotal`) for selected date intervals (e.g., GHC 2,712.49 for Sept 1–30, 2026).
-
-### 3. Daily Subscription & Settlement Breakdown List Table
-Directly below the 4 primary KPI cards, the dashboard displays the exact settlement table matching the enterprise acquisition specification:
-- **Columns**:
-  - `Date`: Calendar date of subscription events (`YYYY-MM-DD`).
-  - `New_Subscriber_Num`: Total new subscriber registrations/activations with billed breakdown.
-  - `Activation Parking`: Subscriptions parked in grace/pending billing due to insufficient balance.
-  - `Super Winnings Daily`: Revenue in GHC (or transaction count) for Offer `9923310010`.
-  - `Super Winnings on-demand Daily`: Revenue in GHC (or transaction count) for Offer `9923310009`.
-  - `Grand Total`: Total settlement billing across all offers (`Daily + On-demand`).
-- **Visual Section Boundary**: Vertical double separator (`||`) between Activation Parking and Offer Billing columns.
-- **Interactive Controls**:
-  - View mode switcher: `[ 💵 Revenue (GHC) | 📊 Transactions ]`
-  - Date search & filtering
-  - Streaming CSV export (`Export CSV`)
-  - Running summary totals row at table footer
-  - Pagination controls
-
-### 4. GHSUPERWINNINGS Telemetry & Offer Profiles
-- **Database Scope**: `ghsuperwinings`
-- **Business Timezone**: `Africa/Accra`
-- **Offer Profiles**:
-  - `9923310010`: Super Winnings Daily
-  - `9923310009`: Super Winnings On-demand Daily
-- **Dedicated User Management**: Accessible via the dedicated `/users` route for authorized operator controls.
-
-### 5. Single Common Sign-In
-- No platform dropdown or manual platform selection on the login page.
-- User submits credentials; the backend evaluates all platform authorizations against `CURRENT_TIMESTAMP` and automatically sets the active platform session.
-
----
-
-## 📁 Project Structure
-
-```text
-reporting/
-├── client/                      # React Vite Frontend
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── common/          # PageHeader, DataTable, StatusBadge, Modal, KpiCard, ChartCard
-│   │   │   └── layout/          # Sidebar, Navbar, AppLayout
-│   │   ├── context/             # AuthContext (Single sign-in & platform switching)
-│   │   ├── pages/
-│   │   │   ├── auth/            # LoginPage (Automated carousel, hero showcase)
-│   │   │   ├── dashboard/       # DashboardPage (4 KPIs, Platform Comparison Charts, Personnel)
-│   │   │   ├── subscribers/     # SubscribersPage (Filters, search, pagination)
-│   │   │   ├── renewals/        # RenewalsPage (Transaction breakdowns)
-│   │   │   ├── churn/           # ChurnPage (Cohort and churn retention)
-│   │   │   ├── quizzes/         # QuizzesPage (Content management)
-│   │   │   └── users/           # UsersPage (RBAC, Date windows, Add/Edit modals)
-│   │   ├── services/            # Axios instance (JWT and tenant header injection)
-│   │   └── styles/              # SCSS variables, mixins, global typography
-│   ├── vite.config.js           # Vite configuration with /api proxy to port 5000
-│   └── package.json
-│
-├── server/                      # Node.js Express Backend
-│   ├── data/                    # Local storage fallback
-│   ├── src/
-│   │   ├── config/              # Environment config, dual-MongoDB connector & proxy
-│   │   ├── controllers/         # Auth, Platform, User, Report, Subscriber, Quiz controllers
-│   │   ├── middleware/          # auth, platformGuard, requireSuperAdmin, rateLimiter, auditLogger
-│   │   ├── models/              # db.js (MongoDB adapter emulation for admin collections)
-│   │   ├── routes/              # Express API routers
-│   │   ├── services/            # sourceDataService.js (Real live MongoDB aggregation engine)
-│   │   └── utils/               # platformAccessHelper, seedData, token
-│   ├── server.js                # Server entry point
-│   ├── .env                     # Environment variables (MongoDB URIs, JWT secrets)
-│   └── package.json
-└── README.md
+```
+Browser (React)                Reporting API (Express)                         Platform APIs
+───────────────                ───────────────────────                         ─────────────
+ Overview / Reports   ──►  auth ─► platform guard ─► report service ─► connector ──HTTPS──► GHSuperWinnings
+ Platforms wizard     ──►  (JWT,   (access window    (metrics,         (auth, params,        /api/admin/dashboard
+ Users / Audit        ──►   RBAC)   re-checked per    provenance,       pagination,
+                                    request)          exports)          SSRF guard)          Other platform APIs
+                                         │                  │
+                                         └──── Reporting admin DB (MongoDB) ◄┘
+                                               users · roles · access windows · platform configs
+                                               encrypted credentials · audit log · connection history
 ```
 
----
+Server layout (`server/src`):
 
-## 🚀 Quick Start & Setup
-
-### Prerequisites
-- **Node.js** (v18.0 or newer recommended)
-- **npm** (v9.0 or newer)
-
-### 1. Server Setup
-```bash
-cd server
-npm install
-npm run dev
-```
-The backend initializes connections to MongoDB and listens on **`http://localhost:5000`**.
-
-### 2. Client Setup
-```bash
-cd client
-npm install
-npm run dev
-```
-The frontend launches on **`http://localhost:5173`** (or `http://localhost:5174` if port 5173 is occupied).
-
-### 3. Production Build
-```bash
-cd client
-npm run build
-```
-Generates an optimized production bundle in `client/dist`.
-
----
-
-## 🔑 Authorized System Accounts & Credentials
-
-### 1. Web Application / Dashboard Login
-
-| Account Type | Username / Email | Password | Platform Scope | Default Role |
-|---|---|---|---|---|
-| **Super Admin** | `main_admin`<br>`main_admin@enterprise.com` | `Password123!` | Consolidated (`ALL`) Platforms | Universal Super Administrator across all platforms (`ghsuperwinings`, `ghanagameium`, `crazymuzik`). Full access to User Management, Platform Comparison, and exports. |
-| **Platform Admin** | `ghsnapflix_rahul`<br>`rahul@ghsnapflix.com` | `Password123!` | `ghsuperwinings` (Platform ID: 1) | Dedicated Platform Administrator for SuperWinnings. Access to subscribers, billing, renewals, churn, and reporting. |
-
-### 2. MongoDB Configuration
-
-Configure your MongoDB connections via environment variables in `server/.env` (refer to `server/.env.example`):
-
-| Variable | Description |
+| Folder | Responsibility |
 |---|---|
-| `SOURCE_MONGODB_URI` | MongoDB connection string for live source databases (`ghsuperwinings`, `ghanagameium`, `crazymuzik` - STRICT READ-ONLY) |
-| `REPORTING_MONGODB_URI` | MongoDB connection string for reporting admin database (`gh_reporting_admin`) |
+| `integrations/` | Generic API connector: SSRF guard, hardened HTTP client, auth strategies, encrypted secret vault, request builder, response normaliser, inspector, validator, presets, adapter registry |
+| `reporting/` | Date ranges in the platform timezone, metric resolution with provenance, settlement table, consolidated view, CSV exports |
+| `repositories/` | Admin-database access (users, access, platforms, audit, tokens, connection logs, settings) |
+| `controllers/`, `routes/` | HTTP layer |
+| `middleware/` | Authentication, platform guard, role guard, audit logging, error handling |
+| `store/` | MongoDB / in-memory store and reference-data seeding |
+
+Client layout (`client/src`): `layouts/AppShell` (navigation, country/platform context),
+`pages/*` (one folder per area), `components/ui` (design system), `components/reports`
+(shared report building blocks), `hooks/` (`useApiQuery` with request cancellation,
+`useReportFilters` with URL-synced date ranges).
 
 ---
 
-## 🛡 Database Architecture & Security Proxies
+## Local setup
 
-### 1. Strict Read-Only Source Proxy (`server/src/config/mongo.js`)
-All queries to the live production databases (`ghsuperwinings`, `ghanagameium`, `crazymuzik`) pass through a JavaScript `Proxy`:
-```javascript
-const FORBIDDEN_WRITE_METHODS = new Set([
-  'insertOne', 'insertMany', 'updateOne', 'updateMany',
-  'replaceOne', 'deleteOne', 'deleteMany', 'findOneAndUpdate',
-  'findOneAndReplace', 'findOneAndDelete', 'bulkWrite', 'drop',
-  'createIndex', 'createIndexes', 'dropIndex', 'dropIndexes', 'rename'
-]);
-```
-Any invocation of a write method immediately throws a `[SECURITY_VIOLATION]` exception, ensuring live production subscriber records cannot be modified or deleted by the reporting application.
-
-### 2. Reporting Admin Database (`gh_reporting_admin`)
-Dedicated exclusively to application management:
-- `admin_users`: Administrative operator accounts and bcrypt password hashes.
-- `admin_roles`: System roles (`Super Admin`, `Platform Admin`, `Author`, `Analyst`, `Viewer`).
-- `admin_platform_access`: Platform-to-user mappings with `start_date`, `end_date`, and `status`.
-- `admin_platforms`: Registered platform metadata and enabled modules.
-- `admin_audit_logs`: Detailed audit logs of logins, operator updates, and modifications.
-
----
-
-## 🔒 Platform-Based Authorization & Date-Wise Access Engine
-
-Every user-to-platform association contains `start_date`, `end_date`, and `status`:
-```sql
-CREATE TABLE IF NOT EXISTS platform_access (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER NOT NULL,
-  platform_id INTEGER NOT NULL,
-  role_id INTEGER NOT NULL,
-  start_date DATETIME NOT NULL,
-  end_date DATETIME NOT NULL,
-  status TEXT DEFAULT 'ACTIVE', -- 'ACTIVE' or 'REVOKED'
-  created_by INTEGER,
-  created_at DATETIME
-);
-```
-
-### Real-Time Status Evaluation Logic
-Evaluated on every API request and at login against `CURRENT_TIMESTAMP`:
-
-$$\text{Status} = \begin{cases} 
-\text{REVOKED} & \text{if } \text{status} = \text{'REVOKED'} \\
-\text{UPCOMING} & \text{if } \text{now} < \text{start\_date} \\
-\text{EXPIRED} & \text{if } \text{now} > \text{end\_date} \\
-\text{ACTIVE} & \text{if } \text{start\_date} \le \text{now} \le \text{end\_date}
-\end{cases}$$
-
-- **Expiring Soon Indicator**: Flagged as `isExpiringSoon = true` when $\text{end\_date} - \text{now} \le 7 \text{ days}$.
-- **Strict Guarding**: Handled server-side in `platformGuard.js`. Non-active access attempts are rejected with HTTP 403.
-
----
-
-## 📡 Complete API Specification
-
-### 1. Authentication & Single Sign-In
-
-#### `POST /api/auth/login`
-Single Sign-In entry point. Backend verifies credentials and evaluates assigned platforms.
-- **Request Body**:
-  ```json
-  {
-    "username": "main_admin",
-    "password": "Password123!"
-  }
-  ```
-- **Response `200 OK`**:
-  ```json
-  {
-    "success": true,
-    "message": "Authentication successful.",
-    "data": {
-      "token": "<JWT_ACCESS_TOKEN>",
-      "refreshToken": "<JWT_REFRESH_TOKEN>",
-      "user": {
-        "id": 1,
-        "name": "Main Admin",
-        "email": "main_admin@enterprise.com",
-        "username": "main_admin",
-        "isSuperAdmin": true,
-        "activeRole": "Super Admin"
-      },
-      "activePlatform": {
-        "id": "ALL",
-        "code": "ALL",
-        "name": "All Platforms",
-        "isAll": true
-      },
-      "availablePlatforms": [
-        {
-          "id": 1,
-          "code": "GHSUPERWININGS",
-          "name": "ghsuperwinings",
-          "role": "Super Admin",
-          "isCurrentlyActive": true
-        },
-        {
-          "id": 2,
-          "code": "GHANAGAMEIUM",
-          "name": "ghanagameium",
-          "role": "Super Admin",
-          "isCurrentlyActive": true
-        },
-        {
-          "id": 3,
-          "code": "CRAZYMUZIK",
-          "name": "crazymuzik",
-          "role": "Super Admin",
-          "isCurrentlyActive": true
-        }
-      ]
-    }
-  }
-  ```
-- **Error Responses `403 Forbidden`**:
-  - `PLATFORM_ACCESS_EXPIRED`: Authorization period has ended.
-  - `PLATFORM_ACCESS_UPCOMING`: Scheduled start date is in the future.
-  - `PLATFORM_ACCESS_REVOKED`: Platform access has been revoked.
-  - `NO_PLATFORMS_ASSIGNED`: No platforms assigned to this user.
-
-#### `GET /api/auth/me`
-Validates active JWT token and returns profile with evaluated active platforms.
-- **Headers**: `Authorization: Bearer <token>`
-
-#### `POST /api/auth/refresh-token`
-Exchanges a valid refresh token for a fresh access token.
-- **Request Body**: `{ "refreshToken": "<token>" }`
-
----
-
-### 2. Public Platform Showcase
-
-#### `GET /api/platforms/showcase`
-Public endpoint (no auth required) powering the login page carousel.
-- **Response `200 OK`**:
-  ```json
-  {
-    "success": true,
-    "data": [
-      {
-        "code": "GHSUPERWININGS",
-        "name": "ghsuperwinings",
-        "badge": "Trivia & Rewards",
-        "tagline": "Daily Trivia, Brain Battles & Instant MoMo Cash Prizes",
-        "description": "Interactive SMS and web trivia challenges covering sports, general knowledge, pop culture, and science.",
-        "bgImage": "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=1200&q=80",
-        "accentColor": "#00E676",
-        "stats": [
-          { "label": "Quiz Masters", "value": "78K+" },
-          { "label": "Daily Winners", "value": "1,200+" },
-          { "label": "Win Rate", "value": "34.2%" }
-        ]
-      }
-    ]
-  }
-  ```
-
----
-
-### 3. Platforms Discovery & Scope
-
-#### `GET /api/platforms`
-Lists all platforms currently active in the system.
-- **Headers**: `Authorization: Bearer <token>`
-- **Response `200 OK`**: Array of registered platform objects with enabled modules.
-
----
-
-### 4. Dashboard Telemetry & Platform Comparison
-
-#### `GET /api/reports/overview`
-Aggregated telemetry and KPI metrics from the live source databases.
-- **Headers**: 
-  - `Authorization: Bearer <token>`
-  - `x-platform-code: <CODE>` (or `ALL`)
-- **Query Params**: `range=today|7d|30d|90d|12m|custom`, `from=YYYY-MM-DD`, `to=YYYY-MM-DD`
-- **Response `200 OK`**: Returns `kpis` (`todayRenewals`, `totalSubscribers`, `activeSubscribers`, `grossRevenue`, `renewalRate`, `arpu`, `newSubscribers`, `churnRate`).
-
-#### `GET /api/reports/platform-comparison`
-Real database cross-platform telemetry and user authorization breakdown. **Restricted to Super Admin**.
-- **Headers**: `Authorization: Bearer <token>`
-- **Response `200 OK`**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "comparison": [
-        {
-          "platformId": 1,
-          "name": "ghsuperwinings",
-          "code": "GHSUPERWININGS",
-          "totalUsers": 3,
-          "activeUsers": 2,
-          "expiredUsers": 1,
-          "expiringSoon": 0,
-          "subscribers": 7103,
-          "activeSubscribers": 582,
-          "renewals": 44689,
-          "failedRenewals": 1820,
-          "revenue": 2068.79,
-          "renewalRate": "96.1%",
-          "renewalRateValue": 96.1
-        },
-        {
-          "platformId": 2,
-          "name": "ghanagameium",
-          "code": "GHANAGAMEIUM",
-          "totalUsers": 1,
-          "activeUsers": 1,
-          "expiredUsers": 0,
-          "expiringSoon": 0,
-          "subscribers": 4456,
-          "activeSubscribers": 485,
-          "renewals": 1984,
-          "failedRenewals": 3896,
-          "revenue": 1984.00,
-          "renewalRate": "33.7%",
-          "renewalRateValue": 33.7
-        },
-        {
-          "platformId": 3,
-          "name": "crazymuzik",
-          "code": "CRAZYMUZIK",
-          "totalUsers": 1,
-          "activeUsers": 1,
-          "expiredUsers": 0,
-          "expiringSoon": 0,
-          "subscribers": 0,
-          "activeSubscribers": 0,
-          "renewals": 0,
-          "failedRenewals": 0,
-          "revenue": 0.00,
-          "renewalRate": "—",
-          "renewalRateValue": 0
-        }
-      ]
-    }
-  }
-  ```
-
----
-
-### 5. Subscribers Management
-
-#### `GET /api/subscribers`
-Paginated, searchable subscriber records from source collections.
-- **Headers**: `Authorization: Bearer <token>`, `x-platform-code: <CODE>`
-- **Query Params**: `page=1`, `limit=20`, `search=233...`, `status=active|churned|all`
-
----
-
-### 6. Renewals & Billing Telemetry
-
-#### `GET /api/renewals`
-Auto-renewal transaction logs and billing attempt breakdowns.
-- **Headers**: `Authorization: Bearer <token>`, `x-platform-code: <CODE>`
-- **Query Params**: `page=1`, `limit=25`, `status=Successful|Failed`
-
----
-
-### 7. Churn Cohort Analytics
-
-#### `GET /api/churn`
-Churn event tracking, voluntary/involuntary cancellations, and retention analytics.
-- **Headers**: `Authorization: Bearer <token>`, `x-platform-code: <CODE>`
-
----
-
-### 8. Quizzes & Content Management
-
-#### `GET /api/quizzes`
-Trivia question banks and difficulty categories.
-- **Headers**: `Authorization: Bearer <token>`, `x-platform-code: GHSUPERWININGS`
-
-#### `POST /api/quizzes/upload`
-Uploads questions in CSV or JSON format (Author or Admin role required).
-- **Headers**: `Authorization: Bearer <token>`, `x-platform-code: GHSUPERWININGS`
-
----
-
-### 9. User Management & Date-Wise Access Control
-*(All write operations are strictly restricted to Super Administrators via `requireSuperAdmin`)*
-
-#### `GET /api/users`
-Lists all administrators and operators with platform assignments, roles, and validity windows.
-- **Headers**: `Authorization: Bearer <token>`
-
-#### `POST /api/users`
-Provisions a new operator with platform assignments and validity dates.
-- **Headers**: `Authorization: Bearer <token>` (Super Admin only)
-- **Validation**: Enforces `start_date <= end_date`.
-- **Request Body**:
-  ```json
-  {
-    "name": "Kwame Mensah",
-    "email": "kwame@enterprise.com",
-    "username": "kwame_operator",
-    "password": "Password123!",
-    "status": "ACTIVE",
-    "platform_assignments": [
-      {
-        "platform_id": 1,
-        "role_id": 2,
-        "start_date": "2026-10-01",
-        "end_date": "2027-10-01",
-        "status": "ACTIVE"
-      }
-    ]
-  }
-  ```
-
-#### `PUT /api/users/:id`
-Updates operator profile, role, status (`ACTIVE`, `INACTIVE`, `REVOKED`), and validity windows.
-- **Headers**: `Authorization: Bearer <token>` (Super Admin only)
-
-#### `DELETE /api/users/:id`
-Revokes platform access and removes operator account.
-- **Headers**: `Authorization: Bearer <token>` (Super Admin only)
-
----
-
-### 10. Streaming CSV Export
-
-#### `GET /api/export/subscribers`
-Streams a CSV download isolated to the user's active platform.
-- **Headers**: `Authorization: Bearer <token>`, `x-platform-code: <CODE>`
-- **Response Headers**:
-  - `Content-Type: text/csv`
-  - `Content-Disposition: attachment; filename="subscribers-export.csv"`
-
-### 11. Dynamic Platform Management & Multi-Tenant Registry
-*(Restricted to Super Administrators via `requireSuperAdmin`)*
-
-#### `GET /api/platform-management`
-Lists all registered platforms with connection status, configuration status, and enabled modules.
-- **Headers**: `Authorization: Bearer <token>`
-- **Query Params**: `search=...`, `status=ACTIVE|DRAFT|NEEDS_VALIDATION|DISABLED`, `country=...`
-
-#### `POST /api/platform-management`
-Registers a new platform with connection details, collection roles, field mappings, and offers.
-- **Headers**: `Authorization: Bearer <token>`
-
-#### `POST /api/platform-management/test-connection` or `POST /api/platform-management/:id/test-connection`
-Executes real-time ping and authentication verification against the configured MongoDB instance.
-- **Request Body**: `{ "mongo_uri": "mongodb+srv://...", "database_name": "..." }`
-- **Response**: `{ "success": true, "latencyMs": 142, "collections": [...] }`
-
-#### `POST /api/platform-management/discover-schema` or `POST /api/platform-management/:id/discover-schema`
-Discovers accessible collections, document counts, and automatically suggests canonical field mappings from sample records.
-
-#### `PUT /api/platform-management/:id/mappings`
-Updates collection and canonical field mappings (`msisdn`, `timestamp`, `transaction_id`, `command`, `status`, `subscription_status`, `charge_amount`, `offer_code`, `failure_reason`, `next_billing_date`).
-
-#### `PUT /api/platform-management/:id/offers`
-Configures offer definitions, billing frequencies (daily, ondemand, monthly), and prices.
-
-#### `POST /api/platform-management/:id/validate`
-Runs a read-only dry-run aggregation, verifies field existence, previews sample normalized records, and calculates 24h & 30d KPI metrics.
-
-#### `POST /api/platform-management/:id/activate`
-Activates the platform. It immediately becomes accessible to authorized users and reporting engines without redeployment.
-
-#### `POST /api/platform-management/:id/disable`
-Soft-disables the platform. Preserves all configurations and historical records.
-
----
-
-## 🛠 Troubleshooting & Common Issues
-
-### 1. Port 5000 Conflict (`listen EADDRINUSE: address already in use :::5000`)
-If another background Node process or legacy project is holding port 5000, Express will throw `EADDRINUSE`.
-**Resolution (Windows PowerShell)**:
-```powershell
-# 1. Identify which process is holding port 5000
-Get-NetTCPConnection -LocalPort 5000 | Select-Object LocalPort, OwningProcess, State
-
-# 2. Terminate the conflicting process
-Stop-Process -Id <PID> -Force
-
-# 3. Start the server
-cd server
-npm run dev
-```
-
-### 2. Browser Shows `400 Bad Request` or `404 Not Found` on Login
-- **Cause**: Occurs if Vite's `/api` proxy forwarded requests to an old/different backend service running on port 5000.
-- **Resolution**: Ensure the Reporting backend (`d:/reporting/server/server.js`) is running on port 5000 and verify via `GET http://localhost:5000/api/platforms/showcase`.
-
-### 3. MongoDB Atlas Cluster Storage Quota Notice
-```
-⚠️ [Mongo] Reporting admin metadata sync skipped (cluster storage quota): you are over your space quota, using 512 MB of 512 MB.
-```
-- **Context**: The Atlas shared M0 free cluster tier has reached its 512 MB limit.
-- **Application Behavior**: The reporting backend handles this gracefully — read-only queries against live collections continue unimpeded, and existing administrative users remain fully authorized.
-
----
-
-## 🧪 Verification & Security Policies
- 
-The enterprise reporting engine enforces strict validation across all access rules, date boundaries, and RBAC guards:
-
-- **Single Sign-In**: Super administrators authenticate centrally and switch contexts dynamically without hardcoded platform credentials.
-- **Date-Wise Validity**: Platform access records are evaluated in real time (UTC) against active windows (Active, Upcoming, Expired, Revoked).
-- **Read-Only Database Proxy**: Live production MongoDB collections are strictly guarded by read-only security proxies that reject mutations.
-- **Role-Based Guards**: Modification and user administration endpoints strictly require Super Admin privileges (`requireSuperAdmin`).
-- **Sanitized Configurations**: All connections and secrets are managed strictly via environment variables.
-
-### Running Automated Test Suite
-To verify strict read-only database enforcement, secret masking, baseline platform migration, historical financial report fidelity, and dynamic platform registration without code changes:
 ```bash
-node ./server/test/verify_dynamic_platform_system.js
+# 1. Backend
+cd server
+cp .env.example .env        # fill in the values (see below)
+npm install
+npm run dev                 # http://localhost:5002
+
+# 2. Frontend (separate terminal)
+cd client
+npm install
+npm run dev                 # http://localhost:5173 (proxies /api to :5002)
+
+# Production build of the frontend
+npm run build               # → client/dist
 ```
+
+### Local demo without touching any real database or API
+
+```bash
+cd server
+npm run mock:platform-api                                      # synthetic platform APIs on 127.0.0.1:5055
+SEED_SUPER_ADMIN_PASSWORD='choose-a-local-password' npm run dev:memory   # API with an in-memory admin store
+```
+
+Sign in as `superadmin` with that password, open **Platforms → Add platform**, choose a preset and
+point the base URL at the mock:
+
+| Mock | Base URL | Auth | Credentials |
+|---|---|---|---|
+| ALPHA (GHSuperWinnings-style) | `http://127.0.0.1:5055/api` | Login → token, `POST /admin/login` with `email`/`password` | `reporting@alpha.example.test` / `alpha-test-password` |
+| BETA (different conventions) | `http://127.0.0.1:5055` | API key header `X-Api-Key` | `beta-key-456` |
+
+The mock data is synthetic and deterministic (see `server/test/fixtures/mockPlatformApi.js`).
+`dev:memory` only allows the private address `127.0.0.1:5055` because it sets
+`OUTBOUND_ALLOW_PRIVATE_HOSTS`; never set that in production.
+
+---
+
+## Environment variables
+
+Server (`server/.env`, see `server/.env.example`):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `NODE_ENV` | | `production` enforces required secrets and strict CORS |
+| `REPORTING_API_PORT` | | API port (default `5002`) |
+| `JWT_SECRET`, `JWT_REFRESH_SECRET` | **yes (prod)** | ≥ 16 random characters each; the server refuses to start in production without them |
+| `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | | Default `1h` / `7d` |
+| `CORS_ORIGIN` | | Comma-separated browser origins allowed to call the API directly (not needed behind the Vercel `/api` rewrite) |
+| `REPORTING_STORE` | | `mongodb` (default) or `memory` (tests/dev only) |
+| `REPORTING_MONGODB_URI` | **yes** | Reporting admin database |
+| `SEED_SUPER_ADMIN_USERNAME/EMAIL/PASSWORD` | | Creates the first Super Admin **only if no users exist** |
+| `INTEGRATION_SECRET_KEY` | **yes** | 32-byte key (base64 or hex) encrypting platform API credentials (AES-256-GCM). Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Changing it makes stored credentials unreadable (re-enter them). |
+| `OUTBOUND_ALLOWED_HOSTS` | | Approved API hosts, e.g. `ghsuperwinnings.com,*.partner.com`. Super Admins can add more in **Settings → Approved API hosts**. |
+| `OUTBOUND_ALLOW_PRIVATE_HOSTS`, `OUTBOUND_ALLOW_HTTP_HOSTS` | | Development-only exceptions (`host:port`) |
+| `OUTBOUND_DEFAULT_TIMEOUT_MS`, `OUTBOUND_MAX_RESPONSE_BYTES`, `OUTBOUND_CACHE_TTL_MS` | | Connector tuning (defaults 15 s, 5 MB, 30 s) |
+| `EXPORT_MAX_RECORDS`, `EXPORT_MAX_PAGES` | | Export safety limits (defaults 50 000 rows, 500 pages) |
+
+`SOURCE_MONGODB_URI` is **no longer used** and can be removed.
+
+Client: `VITE_API_URL` (optional) — absolute backend URL; leave unset when `/api` is proxied.
+
+---
+
+## Adding a platform
+
+Super Admins only: **Platforms → Add platform**. Every step is a URL (`/platforms/:id?step=…`), so
+**API Configuration** and **Data Mapping** in the sidebar link straight into the right step.
+
+1. **Platform details** – name, permanent code, description, logo/brand accent, country, business
+   timezone, currency, enabled reporting modules. Optionally start from a preset.
+2. **API configuration** – HTTPS base URL (host must be approved), report endpoint path and method
+   (GET/POST), optional export endpoint, authentication (none, bearer token, API-key header, or
+   username/password login → token from JSON or a documented cookie), write-only credentials,
+   timeout, rate limit, response-size limit, default range.
+3. **Request parameters** – map `from`, `to`, `report_type`, `page`, `limit`, `offset`, `search`,
+   `status`, `cursor` to the platform's parameter names; date format; inclusive/exclusive end date;
+   report-type values; pagination strategy and metadata paths; static params; safe extra headers.
+4. **Response inspection** – send a test request and see HTTP status, timing, size, content type,
+   a sanitised preview (secrets redacted, phone numbers/emails masked), the detected structure
+   (click a container to use it as daily rows / records / summary) and pagination metadata.
+   Response paths (`data`, `result.rows`, `$` …) are configured explicitly, never guessed.
+5. **Field mapping** – map response fields to canonical fields for daily rows, the period summary
+   and records, with date formats, decimal separators and column labels; document rules in notes.
+6. **Validate & activate** – validation runs against a sample date range and checks destination,
+   authentication, parameters, reachability, JSON/success flag, structure, every mapped field,
+   number/date parsing, date-range semantics, pagination (two real pages), summary-vs-daily
+   reconciliation, record reports and module coverage. **Activation is only possible when the latest
+   validation of the saved draft has no failed check** (the result is bound to a hash of the exact
+   configuration and credential version).
+
+Activating publishes the configuration: the platform immediately appears in the selector of every
+authorised user. Later edits stay in a draft; reports keep using the published configuration until
+the draft is validated and published again. **Disable** hides the platform without deleting anything.
+
+Existing platforms from the direct-MongoDB era keep their records but show
+*"Previously read directly from MongoDB … configure its API integration"* until configured.
+
+---
+
+## Integration engine
+
+`PlatformApiClient` (`server/src/integrations/connector.js`) is the single, configuration-driven
+connector used for every platform:
+
+1. Load the platform's **published** configuration (or the draft, in the wizard).
+2. The platform guard has already re-validated the user's access window for this request.
+3. Build the outbound request from mapped parameter names, date formats (in the platform timezone)
+   and static parameters (`requestBuilder.js`).
+4. Decrypt credentials server-side (`secretVault.js`) and resolve auth headers (`authStrategies.js`;
+   login tokens are cached in memory and refreshed once on HTTP 401).
+5. Check the destination policy, apply the per-platform outbound rate limit, send through the
+   hardened client (`httpClient.js`) with timeout, size limit and redirect re-validation.
+6. Classify failures (`errors.js`): DNS/connection/TLS, timeout, 401/403, 404, 429 (with
+   `Retry-After`), 5xx, invalid JSON/HTML, API-reported failure, schema drift, pagination problems.
+7. Normalise with the field mapping (`normalizer.js`): missing → `null`, unparseable → error.
+8. Paginate with stall, duplicate and `max_pages` protection; exports report completeness.
+9. Cache snapshots for 30 s per platform/config/range; record health (last success/error) and
+   failed requests in the connection history — request metadata only.
+
+**Adapters.** All platforms use the `generic-json` adapter. A platform with fundamentally different
+semantics (for example raw billing events needing platform-specific aggregation) needs a code-reviewed
+adapter registered in `integrations/adapters/index.js` implementing `postNormalize`; configuration
+can select an adapter but never supply code.
+
+---
+
+## Reporting rules
+
+- **Provenance on every metric**: `API` (supplied by the platform), `Calculated` (by the reporting
+  server from API values, formula shown) or `Unavailable` (missing inputs named). Unavailable is never
+  shown as 0.
+- An API summary value is always used as-is; derived metrics (e.g. grand total = daily + on-demand)
+  are only calculated when the API does not provide them. API totals and recalculated totals are
+  never added together; if both exist and differ, a reconciliation warning is shown.
+- Point-in-time metrics (subscriber base) are never summed across days or platforms.
+- Money is summed exactly (integer micro-units) and rounded half-up at the end.
+- Date presets are evaluated in the platform's business timezone; days the API did not return are
+  left blank and listed, never zero-filled.
+- **All Platforms** (Super Admin): totals only additive flow metrics; revenue per currency; no
+  averaging of ratios; failed or unconfigured platforms are excluded and listed.
+- Failed requests return an error with a specific code — the UI states that no figures are shown.
+
+---
+
+## Security model
+
+- **SSRF protection**: HTTPS only, approved hosts only, no credentials in URLs, non-standard ports
+  must be approved explicitly, every DNS answer checked (loopback, RFC 1918, link-local, CGNAT,
+  multicast, reserved, IPv4-mapped/NAT64/6to4 forms and cloud-metadata names blocked), the socket
+  connects to the validated address, redirects re-validated per hop, credentials dropped on
+  cross-origin redirects, only GET/POST, forbidden headers rejected, endpoint paths confined under
+  the base URL, response size enforced after decompression.
+- **Secrets**: encrypted at rest (AES-256-GCM), write-only in the UI, never returned by any API,
+  redacted from audit metadata and inspection previews.
+- **Authentication**: short-lived access tokens; **rotating single-use refresh tokens** with reuse
+  detection (reusing a rotated token revokes the whole session family); password changes/resets and
+  deactivation revoke sessions; generic login errors and a constant-cost miss path.
+- **Authorisation**: Super Admin for platform configuration, approved hosts, users and countries;
+  Platform Admin sees users/audit for their platforms only; Analyst/Platform Admin can export;
+  Viewer is read-only. The platform header is re-validated against the user's access window on every
+  request, so switching platforms client-side cannot bypass access rules.
+- **Audit**: logins, failures, token reuse, user changes, exports, platform creation/edits,
+  credential changes (field names only), tests, validations, activation and disabling.
+
+---
+
+## GHSuperWinnings integration status
+
+**Observed** (unauthenticated probe on 2026-10-14): `GET https://ghsuperwinnings.com/api/admin/dashboard`
+returns `401 {"success":false,"message":"No token provided"}` from an Express backend.
+
+**Inferred from the public GHSuperWinnings admin web client** (not from an authenticated response):
+login `POST /api/admin/login` with `{email, password}` → `{success, token}` sent as
+`Authorization: Bearer`; dashboard parameters `fromDate`, `toDate`, `report` (`all|success|renewal|churn`),
+`page`, `limit` (max 50, or 500 for renewal/churn); response fields `data`, `summary.newSubscriptions`,
+`daily[].date`, `daily[].newSubscriptions`; dates bucketed in Africa/Accra.
+
+The **GHSuperWinnings preset** in the wizard contains only these. **Still needed from the API owner**:
+
+1. A service account (or token) for the reporting server, and whether `/api/admin/login` is the intended machine login.
+2. A sample authenticated response for `report=all`, `success`, `renewal` and `churn`.
+3. The field holding the total record count (`total`, `count`, `pagination.total` or `meta.total`).
+4. Whether `toDate` is inclusive and which timezone the API filters in.
+5. Which response fields (if any) carry per-day **Activation Parking**, **Super Winnings Daily**
+   (offer 9923310010) revenue, **Super Winnings on-demand Daily** (offer 9923310009) revenue,
+   **Grand Total**, and the matching transaction counts — these settlement columns are shown as
+   "not provided by API" until mapped.
+6. Revenue semantics of `totalGhsAmount`, `newRevenueGhs`, `renewalRevenueGhs`, `topupRevenueGhs`
+   (gross/net, offers included).
+7. Record field names for the amount and a unique record id.
+8. Rate limits and any IP allow-listing on their side.
+
+---
+
+## API reference
+
+All routes are under `/api`. Platform-scoped routes take `x-platform-code: <CODE>` (or `ALL` for
+Super Admin consolidated views, optionally with `x-country`).
+
+| Method & path | Access | Purpose |
+|---|---|---|
+| `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` | public / user | Sign-in, rotating refresh, sign-out, profile |
+| `GET /platforms` | user | Authorised platform selector entries |
+| `GET /reports/overview` | platform | KPIs, trends, settlement preview, data source (consolidated for `ALL`) |
+| `GET /reports/settlement` | platform | Daily settlement table with totals and running totals |
+| `GET /reports/section/:section` | platform | `revenue`, `subscribers`, `renewals`, `churn` |
+| `GET /reports/records?reportType=` | platform | Record pages using the source API pagination |
+| `GET /reports/activity` | platform | Recent report activity |
+| `GET /export/settlement`, `GET /export/records` | Analyst+ | Server-side CSV (`X-Export-Complete`, `X-Export-Rows` headers) |
+| `GET/POST /platform-management`, `GET/PUT /platform-management/:id` | Super Admin | Platform registry |
+| `PUT /platform-management/:id/integration` | Super Admin | Save draft configuration and credentials |
+| `POST /platform-management/:id/inspect` | Super Admin | Test request + sanitised inspection |
+| `POST /platform-management/:id/validate` / `activate` / `disable` | Super Admin | Lifecycle |
+| `GET /platform-management/history`, `/:id/history` | Super Admin | Connection & validation history |
+| `GET/PUT /platform-management/allowlist`, `GET /platform-management/meta` | Super Admin | Approved hosts; wizard metadata and presets |
+| `/users`, `/countries`, `/audit-logs`, `/settings` | see roles | Administration |
+
+Query parameters for reports: `range=today|yesterday|7d|30d|mtd|90d|custom`, `from`, `to` (`YYYY-MM-DD`), `fresh=1` to bypass the 30-second cache.
+
+---
+
+## Tests
+
+```bash
+cd server
+npm test
+```
+
+Runs Node's built-in test runner (no network, in-memory store, synthetic mock APIs):
+
+| File | Covers |
+|---|---|
+| `ssrf-and-http.test.js` | Address classification (IPv4/IPv6/mapped forms), URL policy, DNS-rebinding guard, timeouts, size limits incl. decompression bombs, redirect re-validation, abort |
+| `mapping.test.js` | JSON paths, decimal/date transforms, exact money sums, configuration validation, parameter mapping for two platforms, envelopes (`data`/`result`/`payload`/root), missing vs invalid fields |
+| `connector.test.js` | Bearer, API-key and login-token auth (incl. re-login on 401), page and offset pagination, stalled pagination, duplicates, max pages, every failure class, empty-vs-failed, outbound rate limit |
+| `reporting.test.js` | Provenance, no double counting, stock vs flow metrics, settlement totals and running totals, timezone date presets, CSV escaping/formula injection/precision, GHSuperWinnings regression |
+| `api.test.js` | End-to-end over HTTP: login, refresh rotation and reuse detection, activation gating, secrets never returned, host approval, inspection, two live platforms, consolidated rules, failures as errors, record pagination, isolation and expired access, RBAC, CSV exports and audit |
+
+The client has no automated UI tests; it is verified with `npm run build` and manual walkthroughs.
+
+---
+
+## Upgrading from the direct-MongoDB version
+
+1. Set `INTEGRATION_SECRET_KEY` (and keep `JWT_SECRET`/`JWT_REFRESH_SECRET`) on the server host; add
+   `ghsuperwinnings.com` to `OUTBOUND_ALLOWED_HOSTS` or approve it in the UI.
+2. Deploy. Existing users, roles, access windows and countries are kept. Users sign in again once
+   (old refresh tokens have no rotation id).
+3. Existing platforms stay registered but show "API integration not activated" until a Super Admin
+   configures, validates and activates each one (the GHSuperWinnings preset helps).
+4. Make sure the reporting admin cluster has free storage: sign-in now writes refresh-token records.
+5. `SOURCE_MONGODB_URI` can be removed; nothing reads the platforms' production databases any more.
+
+Removed as obsolete: the source-database services (`sourceDataService`, `universalAnalyticsEngine`,
+`mongoClientManager`), the SQL-emulation layer (`models/db.js`) and its SQL schema/seed scripts, the
+Quiz module (its storage was a no-op in the emulation layer), and the hard-coded settlement figures.

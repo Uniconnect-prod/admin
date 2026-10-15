@@ -1,0 +1,49 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+// Page header -------------------------------------------------------------------
+.page-header {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: $space-4; flex-wrap: wrap;
+  margin-bottom: $space-6;
+  &__eyebrow { @include label-caps; color: $brand-500; margin-bottom: $space-1; display: flex; align-items: center; gap: 6px; }
+  &__title { font-size: $fs-2xl; font-weight: 800; letter-spacing: -0.02em; @include below($bp-sm) { font-size: $fs-xl; } }
+  &__description { color: $text-muted; margin-top: $space-1; max-width: 760px; }
+  &__actions { display: flex; align-items: center; gap: $space-2; flex-wrap: wrap; }
+}
+
+.card__title-icon { color: $brand-500; }
+
+// KPI cards ----------------------------------------------------------------------
+.kpi-card {
+  @include card; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: $space-2;
+  padding: $space-4 $space-5; text-align: left; width: 100%; min-height: 128px;
+  &::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: $brand-500; }
+  &--green::before { background: $emerald-600; }
+  &--sky::before { background: $brand-300; }
+  &--navy::before { background: $slate-800; }
+  &--amber::before { background: $amber-600; }
+  &.is-clickable { cursor: pointer; transition: box-shadow $t-normal, transform $t-normal; &:hover { box-shadow: $shadow-md; transform: translateY(-1px); } @include focus-visible; }
+  &__top { display: flex; justify-content: space-between; align-items: flex-start; gap: $space-2; }
+  &__label { font-size: $fs-sm; font-weight: 600; color: $text-muted; }
+  &__icon { width: 32px; height: 32px; border-radius: $radius-md; display: grid; place-items: center; background: $brand-50; color: $brand-500; flex-shrink: 0; }
+  &__value { font-size: 26px; font-weight: 800; color: $text-strong; letter-spacing: -0.02em; line-height: 1.15; }
+  &.is-unavailable &__value { font-size: $fs-lg; font-weight: 600; color: $text-faint; }
+  &__foot { display: flex; align-items: center; gap: $space-2; margin-top: auto; min-width: 0; }
+  &__note { font-size: $fs-xs; color: $text-faint; @include truncate; }
+}
+
+// Platform avatar ---------------------------------------------------------------------
+.platform-avatar {
+  display: inline-grid; place-items: center; flex-shrink: 0; border-radius: $radius-md; color: $white; font-weight: 800; letter-spacing: 0.02em;
+  &--all { background: $gradient-brand-green; }
+  &--img { object-fit: contain; background: $white; border: 1px solid $border; }
+}
+
+// Date filter ---------------------------------------------------------------------------
+.date-filter {
+  display: flex; align-items: center; gap: $space-2; flex-wrap: wrap;
+  .select { width: auto; min-width: 150px; }
+  &__custom { display: flex; align-items: center; gap: $space-2; flex-wrap: wrap; .input { width: 148px; } }
+}
+
+.dropdown { position: relative; }

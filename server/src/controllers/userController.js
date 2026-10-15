@@ -1,308 +1,174 @@
 import bcrypt from 'bcryptjs';
-import { db } from '../models/db.js';
+import { userRepository } from '../repositories/userRepository.js';
+import { accessRepository, roleRepository } from '../repositories/accessRepository.js';
+import { platformRepository } from '../repositories/platformRepository.js';
+import { tokenRepository } from '../repositories/tokenRepository.js';
+import { formatAccessRecord } from '../utils/platformAccessHelper.js';
 import { logAudit } from '../middleware/auditLogger.js';
-import { determineAccessStatus, formatAccessRecord } from '../utils/platformAccessHelper.js';
+import { badRequest, notFound, conflict } from '../utils/errors.js';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[A-Za-z0-9_.-]{3,50}$/;
+export const MIN_PASSWORD_LENGTH = 10;
+
+async function validateAssignments(assignments) {
+  if (assignments === undefined) return undefined;
+  if (!Array.isArray(assignments)) throw badRequest('platform_assignments must be an array.');
+  const [roles, platforms] = await Promise.all([roleRepository.list(), platformRepository.listAll()]);
+  const roleIds = new Set(roles.map(r => r.id));
+  const platformIds = new Set(platforms.map(p => p.id));
+  const seen = new Set();
+  return assignments.map((a, i) => {
+    const platformId = parseInt(a?.platform_id, 10);
+    const roleId = parseInt(a?.role_id, 10);
+    if (!platformIds.has(platformId)) throw badRequest(`Assignment ${i + 1}: unknown platform.`);
+    if (!roleIds.has(roleId)) throw badRequest(`Assignment ${i + 1}: unknown role.`);
+    if (seen.has(platformId)) throw badRequest(`Assignment ${i + 1}: the platform is assigned more than once.`);
+    seen.add(platformId);
+    const start = new Date(a.start_date);
+    const end = new Date(a.end_date);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) throw badRequest(`Assignment ${i + 1}: start and end dates are required.`);
+    if (start > end) throw badRequest(`Assignment ${i + 1}: the start date must not be after the end date.`);
+    return { platform_id: platformId, role_id: roleId, start_date: start, end_date: end, status: a.status === 'REVOKED' ? 'REVOKED' : 'ACTIVE' };
+  });
+}
+
+async function withAccess(users, visiblePlatformIds = null) {
+  const [access, roles, platforms] = await Promise.all([accessRepository.listAll(), roleRepository.list(), platformRepository.listAll()]);
+  const roleMap = new Map(roles.map(r => [r.id, r.name]));
+  const platformMap = new Map(platforms.map(p => [p.id, p]));
+  const now = new Date();
+  return users.map(u => {
+    const rows = access
+      .filter(a => a.user_id === u.id && (!visiblePlatformIds || visiblePlatformIds.has(a.platform_id)))
+      .map(a => formatAccessRecord({
+        ...a,
+        platform_name: platformMap.get(a.platform_id)?.name || `Platform #${a.platform_id}`,
+        platform_code: platformMap.get(a.platform_id)?.code || null,
+        role_name: roleMap.get(a.role_id) || 'Viewer'
+      }, now));
+    const roleNames = [...new Set(rows.map(r => r.role_name))];
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      username: u.username,
+      status: u.status,
+      country: u.country || null,
+      is_super_admin: Boolean(u.is_super_admin || u.id === 1),
+      last_login_at: u.last_login_at || null,
+      created_at: u.created_at || null,
+      roles: roleNames,
+      platforms: rows,
+      activePlatformsCount: rows.filter(r => r.isCurrentlyActive).length
+    };
+  });
+}
+
+function validateProfile({ name, email, username }, { partial = false } = {}) {
+  if (!partial || name !== undefined) {
+    if (typeof name !== 'string' || name.trim().length < 2 || name.length > 100) throw badRequest('Full name is required (2–100 characters).');
+  }
+  if (!partial || email !== undefined) {
+    if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) throw badRequest('A valid email address is required.');
+  }
+  if (!partial || username !== undefined) {
+    if (typeof username !== 'string' || !USERNAME_RE.test(username.trim())) throw badRequest('Username must be 3–50 characters: letters, digits, dot, dash or underscore.');
+  }
+}
 
 export const userController = {
+  async getRoles(req, res) {
+    res.json({ success: true, data: await roleRepository.list() });
+  },
+
   async getAllUsers(req, res) {
-    try {
-      const users = await db.all(
-        `SELECT id, name, email, username, status, country, last_login_at, created_at 
-         FROM users WHERE deleted_at IS NULL ORDER BY id ASC`
-      );
-
-      // Fetch all platform_access records
-      const allAccess = await db.all(
-        `SELECT pa.id, pa.user_id, pa.platform_id, p.name as platform_name, p.code as platform_code,
-                p.country as platform_country,
-                pa.role_id, r.name as role_name, pa.start_date, pa.end_date, pa.status
-         FROM platform_access pa
-         JOIN platforms p ON pa.platform_id = p.id
-         JOIN roles r ON pa.role_id = r.id`
-      );
-
-      const now = new Date();
-      const usersWithPlatforms = users.map(user => {
-        const userAccess = allAccess.filter(pa => pa.user_id === user.id);
-        const formattedPlatforms = userAccess.map(rec => formatAccessRecord(rec, now));
-        const activePlatforms = formattedPlatforms.filter(p => p.isCurrentlyActive);
-        const roles = [...new Set(userAccess.map(p => p.role_name))];
-
-        return {
-          ...user,
-          country: user.country || 'Ghana',
-          roles,
-          primaryRole: roles[0] || 'Viewer',
-          platforms: formattedPlatforms,
-          activePlatformsCount: activePlatforms.length
-        };
-      });
-
-      return res.status(200).json({ success: true, data: usersWithPlatforms });
-    } catch (err) {
-      console.error('[UserController] getAllUsers error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to retrieve users.' });
+    const users = await userRepository.list();
+    if (req.user.isSuperAdmin) {
+      return res.json({ success: true, data: await withAccess(users) });
     }
+    // Platform Admins only see users and assignments on platforms they administer.
+    const adminOf = new Set(req.user.access.filter(a => a.isCurrentlyActive && a.role_name === 'Platform Admin').map(a => a.platform_id));
+    const all = await withAccess(users, adminOf);
+    return res.json({ success: true, data: all.filter(u => u.platforms.length > 0) });
   },
 
   async getUserById(req, res) {
-    try {
-      const { id } = req.params;
-      const user = await db.get(
-        `SELECT id, name, email, username, status, country, last_login_at, created_at 
-         FROM users WHERE id = ? AND deleted_at IS NULL`,
-        [id]
-      );
-
-      if (!user) {
-        return res.status(404).json({ success: false, message: 'User not found.' });
-      }
-
-      const accessRecords = await db.all(
-        `SELECT pa.id, pa.user_id, pa.platform_id, p.name as platform_name, p.code as platform_code,
-                p.country as platform_country,
-                pa.role_id, r.name as role_name, pa.start_date, pa.end_date, pa.status
-         FROM platform_access pa
-         JOIN platforms p ON pa.platform_id = p.id
-         JOIN roles r ON pa.role_id = r.id
-         WHERE pa.user_id = ?`,
-        [id]
-      );
-
-      const now = new Date();
-      const formatted = accessRecords.map(rec => formatAccessRecord(rec, now));
-
-      return res.status(200).json({
-        success: true,
-        data: {
-          ...user,
-          country: user.country || 'Ghana',
-          platforms: formatted
-        }
-      });
-    } catch (err) {
-      console.error('[UserController] getUserById error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to retrieve user details.' });
-    }
+    const user = await userRepository.findById(req.params.id);
+    if (!user) throw notFound('User not found.');
+    const [withPlatforms] = await withAccess([user]);
+    res.json({ success: true, data: withPlatforms });
   },
 
   async createUser(req, res) {
-    try {
-      const { name, email, username, password, status, country, platform_assignments } = req.body;
+    const { name, email, username, password, status, country } = req.body || {};
+    validateProfile({ name, email, username });
+    if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) throw badRequest(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    if (await userRepository.existsWithEmailOrUsername(email.trim(), username.trim())) throw conflict('A user with this email or username already exists.');
+    const assignments = (await validateAssignments(req.body.platform_assignments)) || [];
 
-      if (!name || !email || !username || !password) {
-        return res.status(400).json({
-          success: false,
-          message: 'Full Name, Email, Username, and Password are required.'
-        });
-      }
-
-      // Check for duplicate email or username
-      const existing = await db.get(
-        'SELECT id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND deleted_at IS NULL',
-        [email.trim(), username.trim()]
-      );
-
-      if (existing) {
-        return res.status(409).json({ success: false, message: 'User with this email or username already exists.' });
-      }
-
-      // Date Range Validation for each platform assignment
-      if (Array.isArray(platform_assignments) && platform_assignments.length > 0) {
-        for (const assign of platform_assignments) {
-          if (assign.platform_id) {
-            if (!assign.start_date || !assign.end_date) {
-              return res.status(400).json({
-                success: false,
-                message: 'Every assigned platform must have a valid Start Date and End Date.'
-              });
-            }
-            const sTime = new Date(assign.start_date).getTime();
-            const eTime = new Date(assign.end_date).getTime();
-            if (isNaN(sTime) || isNaN(eTime)) {
-              return res.status(400).json({
-                success: false,
-                message: 'Invalid date format provided for platform access dates.'
-              });
-            }
-            if (sTime > eTime) {
-              return res.status(400).json({
-                success: false,
-                message: `Validation Error: Start Date (${assign.start_date}) must not be after End Date (${assign.end_date}).`
-              });
-            }
-          }
-        }
-      }
-
-      const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash(password, salt);
-      const userCountry = (country || 'Ghana').trim();
-
-      const userResult = await db.run(
-        `INSERT INTO users (name, email, username, password_hash, status, country)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [name.trim(), email.trim(), username.trim(), passwordHash, status || 'ACTIVE', userCountry]
-      );
-
-      const newUserId = userResult.lastID;
-
-      // Assign date-wise platform access
-      if (Array.isArray(platform_assignments) && platform_assignments.length > 0) {
-        for (const assign of platform_assignments) {
-          if (assign.platform_id && assign.role_id) {
-            const startDate = assign.start_date || new Date().toISOString().replace('T', ' ').slice(0, 19);
-            const endDate = assign.end_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-            const assignStatus = assign.status || 'ACTIVE';
-
-            // Insert into platform_access table
-            await db.run(
-              `INSERT INTO platform_access (user_id, platform_id, role_id, start_date, end_date, status, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [newUserId, assign.platform_id, assign.role_id, startDate, endDate, assignStatus, req.user?.id || 1]
-            );
-
-            // Also mirror in legacy user_platforms for backward compatibility
-            await db.run(
-              `INSERT OR REPLACE INTO user_platforms (user_id, platform_id, role_id) VALUES (?, ?, ?)`,
-              [newUserId, assign.platform_id, assign.role_id]
-            );
-          }
-        }
-      }
-
-      await logAudit(req, 'CREATE_USER', 'User', newUserId, { name, email, username, country: userCountry });
-
-      return res.status(201).json({
-        success: true,
-        message: 'User created successfully with platform authorizations.',
-        data: { id: newUserId, name, email, username, country: userCountry }
-      });
-    } catch (err) {
-      console.error('[UserController] createUser error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to create user.' });
-    }
+    const created = await userRepository.create({
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      username: username.trim(),
+      password_hash: await bcrypt.hash(password, 12),
+      status: status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+      country: country ? String(country).trim().slice(0, 80) : null
+    });
+    await accessRepository.replaceForUser(created.id, assignments, req.user.id);
+    await logAudit(req, 'CREATE_USER', 'User', created.id, { username: created.username, assignments: assignments.length }, { platformId: null });
+    const [out] = await withAccess([created]);
+    res.status(201).json({ success: true, message: 'User created.', data: out });
   },
 
   async updateUser(req, res) {
-    try {
-      const { id } = req.params;
-      const { name, email, username, status, country, platform_assignments } = req.body;
-
-      const user = await db.get('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
-      if (!user) {
-        return res.status(404).json({ success: false, message: 'User not found.' });
-      }
-
-      // Validate date ranges if platform_assignments provided
-      if (Array.isArray(platform_assignments)) {
-        for (const assign of platform_assignments) {
-          if (assign.platform_id && assign.start_date && assign.end_date) {
-            const sTime = new Date(assign.start_date).getTime();
-            const eTime = new Date(assign.end_date).getTime();
-            if (sTime > eTime) {
-              return res.status(400).json({
-                success: false,
-                message: `Validation Error: Start Date (${assign.start_date}) must not be after End Date (${assign.end_date}).`
-              });
-            }
-          }
-        }
-      }
-
-      await db.run(
-        `UPDATE users 
-         SET name = COALESCE(?, name),
-             email = COALESCE(?, email),
-             username = COALESCE(?, username),
-             status = COALESCE(?, status),
-             country = COALESCE(?, country),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [name, email, username, status, country, id]
-      );
-
-      // If platform assignments updated
-      if (Array.isArray(platform_assignments)) {
-        // Clear existing access records for this user
-        await db.run('DELETE FROM platform_access WHERE user_id = ?', [id]);
-        await db.run('DELETE FROM user_platforms WHERE user_id = ?', [id]);
-
-        for (const assign of platform_assignments) {
-          if (assign.platform_id && assign.role_id) {
-            const startDate = assign.start_date || new Date().toISOString().replace('T', ' ').slice(0, 19);
-            const endDate = assign.end_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-            const assignStatus = assign.status || 'ACTIVE';
-
-            await db.run(
-              `INSERT INTO platform_access (user_id, platform_id, role_id, start_date, end_date, status, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [id, assign.platform_id, assign.role_id, startDate, endDate, assignStatus, req.user?.id || 1]
-            );
-
-            await db.run(
-              `INSERT OR REPLACE INTO user_platforms (user_id, platform_id, role_id) VALUES (?, ?, ?)`,
-              [id, assign.platform_id, assign.role_id]
-            );
-          }
-        }
-      }
-
-      await logAudit(req, 'UPDATE_USER', 'User', id, { name, email, status });
-
-      return res.status(200).json({ success: true, message: 'User and platform authorizations updated successfully.' });
-    } catch (err) {
-      console.error('[UserController] updateUser error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to update user.' });
+    const id = parseInt(req.params.id, 10);
+    const existing = await userRepository.findById(id);
+    if (!existing) throw notFound('User not found.');
+    const { name, email, username, status, country } = req.body || {};
+    validateProfile({ name, email, username }, { partial: true });
+    if (status !== undefined && !['ACTIVE', 'INACTIVE'].includes(status)) throw badRequest('Status must be ACTIVE or INACTIVE.');
+    if (id === req.user.id && status === 'INACTIVE') throw badRequest('You cannot deactivate your own account.');
+    if ((email !== undefined || username !== undefined)
+      && await userRepository.existsWithEmailOrUsername((email ?? existing.email).trim(), (username ?? existing.username).trim(), id)) {
+      throw conflict('Another user already has this email or username.');
     }
+    const assignments = await validateAssignments(req.body.platform_assignments);
+
+    await userRepository.update(id, {
+      name: name?.trim(),
+      email: email?.trim().toLowerCase(),
+      username: username?.trim(),
+      status,
+      country: country === undefined ? undefined : (country ? String(country).trim().slice(0, 80) : null)
+    });
+    if (assignments) await accessRepository.replaceForUser(id, assignments, req.user.id);
+    if (status === 'INACTIVE') await tokenRepository.revokeAllForUser(id);
+    await logAudit(req, 'UPDATE_USER', 'User', id, { fields: Object.keys(req.body || {}).filter(k => k !== 'platform_assignments'), assignments: assignments?.length }, { platformId: null });
+    const [out] = await withAccess([await userRepository.findById(id)]);
+    res.json({ success: true, message: 'User updated.', data: out });
   },
 
   async resetPassword(req, res) {
-    try {
-      const { id } = req.params;
-      const { newPassword } = req.body;
-
-      if (!newPassword || newPassword.length < 6) {
-        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
-      }
-
-      const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash(newPassword, salt);
-
-      await db.run('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [passwordHash, id]);
-      await logAudit(req, 'RESET_PASSWORD', 'User', id);
-
-      return res.status(200).json({ success: true, message: 'Password reset successfully.' });
-    } catch (err) {
-      console.error('[UserController] resetPassword error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to reset password.' });
-    }
+    const id = parseInt(req.params.id, 10);
+    const { newPassword } = req.body || {};
+    if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) throw badRequest(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    if (!(await userRepository.findById(id))) throw notFound('User not found.');
+    await userRepository.setPasswordHash(id, await bcrypt.hash(newPassword, 12));
+    await tokenRepository.revokeAllForUser(id);
+    await logAudit(req, 'RESET_PASSWORD', 'User', id, {}, { platformId: null });
+    res.json({ success: true, message: 'Password reset. Existing sessions for this user were signed out.' });
   },
 
   async deleteUser(req, res) {
-    try {
-      const { id } = req.params;
-      if (parseInt(id, 10) === req.user.id) {
-        return res.status(400).json({ success: false, message: 'Cannot delete your own active account.' });
-      }
-
-      await db.run('UPDATE users SET deleted_at = CURRENT_TIMESTAMP, status = "DELETED" WHERE id = ?', [id]);
-      await logAudit(req, 'DELETE_USER', 'User', id);
-
-      return res.status(200).json({ success: true, message: 'User removed successfully.' });
-    } catch (err) {
-      console.error('[UserController] deleteUser error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to delete user.' });
-    }
-  },
-
-  async getRoles(req, res) {
-    try {
-      const roles = await db.all('SELECT * FROM roles ORDER BY id ASC');
-      return res.status(200).json({ success: true, data: roles });
-    } catch (err) {
-      return res.status(500).json({ success: false, message: 'Failed to fetch roles.' });
-    }
+    const id = parseInt(req.params.id, 10);
+    if (id === req.user.id) throw badRequest('You cannot delete your own account.');
+    const existing = await userRepository.findById(id);
+    if (!existing) throw notFound('User not found.');
+    await userRepository.softDelete(id);
+    await accessRepository.revokeAllForUser(id);
+    await tokenRepository.revokeAllForUser(id);
+    await logAudit(req, 'DELETE_USER', 'User', id, { username: existing.username }, { platformId: null });
+    res.json({ success: true, message: 'User removed and access revoked.' });
   }
 };
-

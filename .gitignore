@@ -33,6 +33,9 @@ server/freeSpace.cjs
 test_*.js
 *.test.js
 *.spec.js
+# Automated test suite (kept in the repository)
+!server/test/
+!server/test/**
 
 # Logs
 logs/

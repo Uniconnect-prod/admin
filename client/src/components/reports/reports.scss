@@ -1,0 +1,22 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.unavailable-note {
+  display: flex; align-items: flex-start; gap: $space-2; font-size: $fs-sm; color: $text-muted;
+  padding: $space-2 $space-3; border: 1px dashed $border-strong; border-radius: $radius-md; background: $white;
+  svg { flex-shrink: 0; margin-top: 3px; color: $text-faint; }
+  strong { color: $text; }
+}
+
+.activity-list {
+  list-style: none; display: flex; flex-direction: column; gap: $space-3; font-size: $fs-sm;
+  li { display: flex; gap: $space-3; align-items: flex-start; }
+  &__dot { width: 8px; height: 8px; border-radius: 50%; background: $brand-300; margin-top: 6px; flex-shrink: 0; box-shadow: 0 0 0 3px $brand-50; }
+}
+
+.rules-list { margin-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: $fs-sm; color: $text; }
+
+.settlement-table {
+  th { text-align: right; &:first-child { text-align: left; } }
+  .cell-sub { text-transform: none; letter-spacing: 0; font-weight: 500; }
+}

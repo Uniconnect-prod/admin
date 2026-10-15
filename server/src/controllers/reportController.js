@@ -1,193 +1,96 @@
-import { sourceDataService } from '../services/sourceDataService.js';
-import { getReportingDb } from '../config/mongo.js';
+import { getSection, getSettlementReport, getRecordsPage, getConsolidatedOverview } from '../reporting/reportService.js';
+import { platformRepository, normalizeModules } from '../repositories/platformRepository.js';
+import { auditRepository } from '../repositories/auditRepository.js';
+import { AppError } from '../utils/errors.js';
+
+const SECTION_MODULES = { revenue: 'revenue', subscribers: 'subscribers', renewals: 'renewals', churn: 'churn' };
+const RECORD_TYPES = ['all', 'overview', 'subscribers', 'renewals', 'churn'];
+
+/**
+ * Abort outbound platform API calls when the browser cancels the request
+ * (filters changed rapidly, page navigated away).
+ */
+export function requestSignal(req, res) {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  return controller.signal;
+}
+
+function rangeQuery(q) {
+  return { range: q.range || undefined, from: q.from || undefined, to: q.to || undefined };
+}
+
+function requireModule(platform, module) {
+  if (!normalizeModules(platform.enabled_modules).includes(module)) {
+    throw new AppError(404, 'MODULE_DISABLED', 'This report is not enabled for the selected platform.');
+  }
+}
 
 export const reportController = {
-  async getOverview(req, res) {
-    try {
-      const { range = '30d', from, to } = req.query;
-      const platformCode = req.activePlatform?.isAll ? 'ALL' : req.activePlatform?.code;
-
-      const overviewData = await sourceDataService.getOverview({
-        platformCode,
-        range,
-        from,
-        to
-      });
-
-      // Fetch recent audit activity from reporting database
-      let recentActivity = [];
-      try {
-        const rDb = getReportingDb();
-        const logs = await rDb.collection('admin_audit_logs')
-          .find({})
-          .sort({ created_at: -1 })
-          .limit(8)
-          .toArray();
-
-        recentActivity = logs.map(a => ({
-          id: a._id.toString(),
-          action: a.action,
-          entity: a.entity,
-          user: a.user_name || 'System Admin',
-          details: a.metadata?.details || `${a.action} on ${a.entity}`,
-          timestamp: a.created_at
-        }));
-      } catch (e) {
-        console.error('Error fetching recent audit logs:', e);
+  async overview(req, res) {
+    const ctx = { userId: req.user.id, signal: requestSignal(req, res), fresh: req.query.fresh === '1' };
+    if (req.activePlatform.isAll) {
+      let platforms = await platformRepository.listActive();
+      if (req.activePlatform.country) {
+        platforms = platforms.filter(p => (p.country || '').toLowerCase() === req.activePlatform.country.toLowerCase());
       }
-
-      overviewData.charts.recentActivity = recentActivity;
-
-      return res.status(200).json({
-        success: true,
-        data: overviewData
-      });
-    } catch (err) {
-      console.error('[ReportController] getOverview error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to retrieve overview reports from live MongoDB.' });
+      const data = await getConsolidatedOverview(platforms, rangeQuery(req.query), ctx);
+      return res.json({ success: true, data });
     }
+    const data = await getSection(req.activePlatform, 'overview', rangeQuery(req.query), ctx);
+    return res.json({ success: true, data });
   },
 
-  async getRevenueReport(req, res) {
-    try {
-      const { range = '30d', from, to } = req.query;
-      const platformCode = req.activePlatform?.isAll ? 'ALL' : req.activePlatform?.code;
-
-      const revenueData = await sourceDataService.getRevenueReport({
-        platformCode,
-        range,
-        from,
-        to
-      });
-
-      return res.status(200).json({
-        success: true,
-        data: revenueData
-      });
-    } catch (err) {
-      console.error('[ReportController] getRevenueReport error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to generate revenue report.' });
-    }
+  async section(req, res) {
+    const section = req.params.section;
+    if (!SECTION_MODULES[section]) throw new AppError(404, 'NOT_FOUND', 'Unknown report.');
+    requireModule(req.activePlatform, SECTION_MODULES[section]);
+    const data = await getSection(req.activePlatform, section, rangeQuery(req.query), {
+      userId: req.user.id,
+      signal: requestSignal(req, res),
+      fresh: req.query.fresh === '1'
+    });
+    res.json({ success: true, data });
   },
 
-  async getGrowthReport(req, res) {
-    try {
-      const { range = '30d', from, to } = req.query;
-      const platformCode = req.activePlatform?.isAll ? 'ALL' : req.activePlatform?.code;
-
-      const overview = await sourceDataService.getOverview({
-        platformCode,
-        range,
-        from,
-        to
-      });
-
-      return res.status(200).json({
-        success: true,
-        data: {
-          monthlyCohort: overview.charts.subscriberGrowth.map(g => ({
-            month: g.date,
-            net_additions: g.net,
-            active: g.active,
-            churned: g.churned
-          }))
-        }
-      });
-    } catch (err) {
-      console.error('[ReportController] getGrowthReport error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to generate growth report.' });
-    }
+  async settlement(req, res) {
+    requireModule(req.activePlatform, 'settlement');
+    const data = await getSettlementReport(req.activePlatform, rangeQuery(req.query), {
+      userId: req.user.id,
+      signal: requestSignal(req, res),
+      fresh: req.query.fresh === '1'
+    });
+    res.json({ success: true, data });
   },
 
-  // Super Admin Cross-Platform Comparison
-  async getPlatformComparison(req, res) {
-    try {
-      if (!req.user.isSuperAdmin) {
-        return res.status(403).json({
-          success: false,
-          code: 'SUPER_ADMIN_REQUIRED',
-          message: 'Cross-platform comparison is restricted to Super Admin.'
-        });
-      }
-
-      // Fetch live business comparison metrics from source MongoDB
-      const businessComparison = await sourceDataService.getPlatformComparison();
-
-      // Fetch user authorization stats from reporting admin database
-      const rDb = getReportingDb();
-      const nowIso = new Date().toISOString();
-      const nowPlus7d = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-      const accessRows = await rDb.collection('admin_platform_access').find({}).toArray();
-
-      const comparison = businessComparison.map(plat => {
-        const platAccess = accessRows.filter(a => a.platform_id === plat.platformId);
-        const uniqueUsers = new Set(platAccess.map(a => a.user_id));
-
-        const activeUsers = platAccess.filter(a =>
-          a.status === 'ACTIVE' && a.start_date <= nowIso && a.end_date >= nowIso
-        ).length;
-
-        const upcomingUsers = platAccess.filter(a =>
-          a.status === 'ACTIVE' && a.start_date > nowIso
-        ).length;
-
-        const expiredUsers = platAccess.filter(a =>
-          a.status === 'ACTIVE' && a.end_date < nowIso
-        ).length;
-
-        const expiringSoon = platAccess.filter(a =>
-          a.status === 'ACTIVE' && a.end_date >= nowIso && a.end_date <= nowPlus7d
-        ).length;
-
-        const renRateNum = parseFloat(String(plat.renewalRate).replace('%', '')) || 0;
-
-        return {
-          ...plat,
-          totalUsers: uniqueUsers.size,
-          activeUsers,
-          upcomingUsers,
-          expiredUsers,
-          expiringSoon,
-          renewalRateValue: renRateNum
-        };
-      });
-
-      return res.status(200).json({
-        success: true,
-        data: {
-          comparison,
-          charts: {
-            revenueComparison: comparison.map(c => ({ name: c.name, revenue: c.revenue })),
-            subscriberComparison: comparison.map(c => ({ name: c.name, subscribers: c.subscribers })),
-            renewalRateComparison: comparison.map(c => ({ name: c.name, rate: c.renewalRateValue })),
-            churnComparison: comparison.map(c => ({ name: c.name, churn: c.churn }))
-          }
-        }
-      });
-    } catch (err) {
-      console.error('[ReportController] getPlatformComparison error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to generate platform comparison.' });
-    }
+  async records(req, res) {
+    const reportType = String(req.query.reportType || 'subscribers');
+    if (!RECORD_TYPES.includes(reportType)) throw new AppError(400, 'VALIDATION_ERROR', 'reportType must be subscribers, renewals or churn.');
+    requireModule(req.activePlatform, (reportType === 'subscribers' || reportType === 'all' || reportType === 'overview') ? 'subscriber_records' : reportType);
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 40) : undefined;
+    if (search && !/^[0-9+\s-]{3,40}$/.test(search)) throw new AppError(400, 'VALIDATION_ERROR', 'Search accepts phone numbers (digits, +, -, spaces).');
+    const status = typeof req.query.status === 'string' && /^[A-Za-z_-]{1,30}$/.test(req.query.status) ? req.query.status : undefined;
+    const data = await getRecordsPage(req.activePlatform, {
+      reportType,
+      ...rangeQuery(req.query),
+      page: req.query.page,
+      pageSize: req.query.pageSize,
+      search: search ? search.replace(/[\s+-]/g, '') : undefined,
+      status
+    }, { userId: req.user.id, signal: requestSignal(req, res) });
+    res.json({ success: true, data });
   },
 
-  async getSubscriptionBusinessReport(req, res) {
-    try {
-      const { from, to, debug } = req.query;
-      const platformCode = req.activePlatform?.isAll ? 'ALL' : req.activePlatform?.code;
-      const report = await sourceDataService.getSubscriptionBusinessReport({
-        platformCode,
-        startDate: from || '2026-09-01T00:00:00.000Z',
-        endDate: to || '2026-10-01T00:00:00.000Z',
-        debug: debug === 'true' || debug === true
-      });
-      return res.status(200).json({
-        success: true,
-        data: report
-      });
-    } catch (err) {
-      console.error('[ReportController] getSubscriptionBusinessReport error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to generate subscription business report.' });
-    }
+  /**
+   * Recent report activity for the selected platform (exports, configuration changes, tests).
+   * Super Admins and Platform Admins see everyone's events; other roles see their own.
+   */
+  async activity(req, res) {
+    const platformIds = req.activePlatform.isAll ? null : [req.activePlatform.id];
+    const seeAll = req.user.isSuperAdmin || req.platformRole === 'Platform Admin';
+    const result = await auditRepository.search({ platformIds, userId: seeAll ? null : req.user.id, page: 1, limit: 8 });
+    res.json({ success: true, data: result.records.map(r => ({ id: r.id, action: r.action, user: r.user, timestamp: r.timestamp, platformId: r.platformId })) });
   }
 };

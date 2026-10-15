@@ -1,0 +1,422 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { Download, RotateCw, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import api, { downloadCsv, describeBlobError, describeError } from '../../services/api';
+import './OverviewPage.scss';
+
+function getMonthStart() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+}
+
+function getToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const STATUS_OPTIONS = [
+  { label: 'All Status', value: 'all' },
+  { label: 'success', value: 'success' },
+  { label: 'renewal', value: 'renewal' },
+  { label: 'churn', value: 'churn' }
+];
+
+export const OverviewPage = () => {
+  const { activePlatform } = useAuth();
+  const toast = useToast();
+
+  // Filter input states
+  const [fromDate, setFromDate] = useState(getMonthStart);
+  const [toDate, setToDate] = useState(getToday);
+  const [status, setStatus] = useState('all');
+
+  // Applied filter state (triggers fetch)
+  const [appliedFilters, setAppliedFilters] = useState(() => ({
+    from: getMonthStart(),
+    to: getToday(),
+    status: 'all'
+  }));
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Data states
+  const [kpiData, setKpiData] = useState({
+    monthlySubscriber: 0,
+    todaySubscriber: 0,
+    todayRenewal: 0,
+    monthlyGhcAmount: '0.00'
+  });
+  const [records, setRecords] = useState([]);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingRecords, setLoadingRecords] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // Fetch KPI Cards
+  const loadKpis = useCallback(async (filters) => {
+    try {
+      const todayStr = getToday();
+      const [monthRes, todayRes] = await Promise.all([
+        api.get('/reports/overview', { params: { from: filters.from, to: filters.to, fresh: 1 } }),
+        api.get('/reports/overview', { params: { from: todayStr, to: todayStr, fresh: 1 } }).catch(() => null)
+      ]);
+
+      const mKpis = monthRes?.data?.data?.kpis || [];
+      const tKpis = todayRes?.data?.data?.kpis || [];
+
+      const newSubs = mKpis.find(k => k.key === 'new_subscribers')?.value;
+      const todaySubs = tKpis.find(k => k.key === 'new_subscribers')?.value;
+      const todayRen = tKpis.find(k => k.key === 'renewal_count')?.value;
+      const grandTotal = mKpis.find(k => k.key === 'grand_total')?.value;
+
+      setKpiData({
+        monthlySubscriber: newSubs !== null && newSubs !== undefined ? Number(newSubs) : 0,
+        todaySubscriber: todaySubs !== null && todaySubs !== undefined ? Number(todaySubs) : 0,
+        todayRenewal: todayRen !== null && todayRen !== undefined ? Number(todayRen) : 0,
+        monthlyGhcAmount: grandTotal !== null && grandTotal !== undefined
+          ? Number(grandTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : '0.00'
+      });
+    } catch {
+      // keep fallback
+    }
+  }, []);
+
+  // Fetch Records
+  const loadRecords = useCallback(async (filters, targetPage, targetPageSize) => {
+    setLoadingRecords(true);
+    try {
+      const reportType = filters.status === 'all'
+        ? 'all'
+        : filters.status === 'success'
+          ? 'subscribers'
+          : filters.status === 'renewal'
+            ? 'renewals'
+            : 'churn';
+
+      const res = await api.get('/reports/records', {
+        params: {
+          reportType,
+          from: filters.from,
+          to: filters.to,
+          page: targetPage,
+          pageSize: targetPageSize
+        }
+      });
+
+      const data = res.data?.data || {};
+      setRecords(data.rows || []);
+      setTotalRecords(data.pagination?.total || 0);
+      setTotalPages(data.pagination?.totalPages || 1);
+    } catch (err) {
+      setRecords([]);
+      setTotalRecords(0);
+      setTotalPages(1);
+    } finally {
+      setLoadingRecords(false);
+    }
+  }, []);
+
+  // Initial and reactive load
+  useEffect(() => {
+    loadKpis(appliedFilters);
+    loadRecords(appliedFilters, page, pageSize);
+  }, [appliedFilters, page, pageSize, loadKpis, loadRecords, activePlatform?.code]);
+
+  // Apply Filter button handler
+  const handleApplyFilter = (e) => {
+    e?.preventDefault();
+    setPage(1);
+    setAppliedFilters({ from: fromDate, to: toDate, status });
+  };
+
+  // Refresh handler
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadKpis(appliedFilters),
+        loadRecords(appliedFilters, page, pageSize)
+      ]);
+      toast.success('Dashboard data refreshed.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Export CSV handler
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const reportType = appliedFilters.status === 'all'
+        ? 'all'
+        : appliedFilters.status === 'success'
+          ? 'subscribers'
+          : appliedFilters.status === 'renewal'
+            ? 'renewals'
+            : 'churn';
+
+      const meta = await downloadCsv('/export/records', {
+        reportType,
+        from: appliedFilters.from,
+        to: appliedFilters.to
+      });
+
+      toast.success(`Exported ${meta.rows?.toLocaleString() || 'all'} record(s) successfully.`);
+    } catch (err) {
+      const e = await describeBlobError(err);
+      toast.error(`Export failed: ${e.message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const startRecord = totalRecords === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endRecord = Math.min(page * pageSize, totalRecords);
+
+  return (
+    <div className="gh-dashboard">
+      {/* 4 Top KPI Cards */}
+      <div className="gh-kpi-grid">
+        <div className="gh-kpi-card">
+          <h3 className="gh-kpi-title">Monthly Subscriber</h3>
+          <div className="gh-kpi-value-row">
+            <span className="gh-kpi-value">{kpiData.monthlySubscriber.toLocaleString()}</span>
+          </div>
+          <div className="gh-kpi-footer">
+            <span className="gh-tag-up">Up 0%</span>
+            <span className="gh-tag-vs">vs. last week</span>
+          </div>
+        </div>
+
+        <div className="gh-kpi-card">
+          <h3 className="gh-kpi-title">Today Subscriber</h3>
+          <div className="gh-kpi-value-row">
+            <span className="gh-kpi-value">{kpiData.todaySubscriber.toLocaleString()}</span>
+          </div>
+          <div className="gh-kpi-footer">
+            <span className="gh-tag-up">Up 0%</span>
+            <span className="gh-tag-vs">vs. last week</span>
+          </div>
+        </div>
+
+        <div className="gh-kpi-card">
+          <h3 className="gh-kpi-title">Today Renewal</h3>
+          <div className="gh-kpi-value-row">
+            <span className="gh-kpi-value">{kpiData.todayRenewal.toLocaleString()}</span>
+          </div>
+          <div className="gh-kpi-footer">
+            <span className="gh-tag-up">Up 0%</span>
+            <span className="gh-tag-vs">vs. last week</span>
+          </div>
+        </div>
+
+        <div className="gh-kpi-card">
+          <h3 className="gh-kpi-title">Monthly GHCAmount</h3>
+          <div className="gh-kpi-value-row">
+            <span className="gh-currency-ghc">GHC</span>
+            <span className="gh-currency-val">{kpiData.monthlyGhcAmount}</span>
+          </div>
+          <div className="gh-kpi-footer">
+            <span className="gh-tag-up">Up 0%</span>
+            <span className="gh-tag-vs">vs. last week</span>
+          </div>
+        </div>
+      </div>
+
+      {/* All Subscriber Card & Filter Toolbar */}
+      <div className="gh-main-card">
+        <div className="gh-toolbar-header">
+          <div className="gh-heading-area">
+            <h2 className="gh-title">All Subscriber</h2>
+            <p className="gh-sub">
+              {totalRecords} records found · {appliedFilters.from} to {appliedFilters.to} (any month, max 31 days)
+            </p>
+          </div>
+
+          <form className="gh-controls-area" onSubmit={handleApplyFilter}>
+            <button
+              type="button"
+              className="gh-btn-export"
+              onClick={handleExport}
+              disabled={exporting || totalRecords === 0}
+            >
+              {exporting ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+              Export CSV
+            </button>
+
+            <button
+              type="button"
+              className="gh-btn-refresh"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <RotateCw size={15} className={refreshing ? 'spin' : ''} />
+              Refresh
+            </button>
+
+            <div className="gh-field">
+              <label htmlFor="gh-from">FROM</label>
+              <input
+                id="gh-from"
+                type="date"
+                value={fromDate}
+                onChange={e => setFromDate(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="gh-field">
+              <label htmlFor="gh-to">TO</label>
+              <input
+                id="gh-to"
+                type="date"
+                value={toDate}
+                onChange={e => setToDate(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="gh-field">
+              <label htmlFor="gh-status">STATUS</label>
+              <select
+                id="gh-status"
+                value={status}
+                onChange={e => setStatus(e.target.value)}
+              >
+                {STATUS_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <button type="submit" className="gh-btn-apply" disabled={loadingRecords}>
+              Apply Filter
+            </button>
+          </form>
+        </div>
+
+        {/* 8-Column Data Table */}
+        <div className="gh-table-container">
+          <table className="gh-data-table">
+            <thead>
+              <tr>
+                <th>MSISDN</th>
+                <th>OFFER CODE</th>
+                <th>REASON</th>
+                <th>LIFECYCLE</th>
+                <th>NEXT BILLING DATE</th>
+                <th>STATUS</th>
+                <th>CHARGING AMOUNT</th>
+                <th>CREATED AT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingRecords ? (
+                <tr className="gh-empty-table-row">
+                  <td colSpan={8}>Loading subscriber records…</td>
+                </tr>
+              ) : records.length === 0 ? (
+                <tr className="gh-empty-table-row">
+                  <td colSpan={8}>No subscriber records found.</td>
+                </tr>
+              ) : (
+                records.map((r, i) => (
+                  <tr key={r.record_id || r.id || `${r.msisdn}-${i}`}>
+                    <td className="gh-cell-mono">{r.msisdn || '—'}</td>
+                    <td>{r.offer_code || '—'}</td>
+                    <td>{r.reason || '-'}</td>
+                    <td>{r.lifecycle || '—'}</td>
+                    <td>{r.next_billing_date ? String(r.next_billing_date).slice(0, 10) : '-'}</td>
+                    <td>
+                      <span className={`gh-status-badge status-${String(r.status || '').toLowerCase()}`}>
+                        {r.status || '—'}
+                      </span>
+                    </td>
+                    <td>{r.charging_amount !== null && r.charging_amount !== undefined ? r.charging_amount : '—'}</td>
+                    <td>
+                      {r.event_time
+                        ? new Date(r.event_time).toISOString().replace('T', ' ').slice(0, 19)
+                        : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Bar */}
+        {totalRecords > 0 && (
+          <div className="gh-pagination-bar">
+            <div className="gh-page-info">
+              Showing {startRecord} to {endRecord} of {totalRecords} records
+            </div>
+
+            <div className="gh-pagination-controls">
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={16} />
+              </button>
+
+              {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                let pNum = idx + 1;
+                if (totalPages > 5 && page > 3) {
+                  pNum = Math.min(totalPages - 4 + idx, page - 2 + idx);
+                }
+                return (
+                  <button
+                    key={pNum}
+                    type="button"
+                    className={page === pNum ? 'is-active' : ''}
+                    onClick={() => setPage(pNum)}
+                  >
+                    {pNum}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                aria-label="Next page"
+              >
+                <ChevronRight size={16} />
+              </button>
+
+              <select
+                className="gh-pagesize-select"
+                value={pageSize}
+                onChange={e => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                aria-label="Records per page"
+              >
+                <option value={25}>25 / page</option>
+                <option value={50}>50 / page</option>
+                <option value={100}>100 / page</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default OverviewPage;

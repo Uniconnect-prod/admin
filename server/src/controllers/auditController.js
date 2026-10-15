@@ -1,96 +1,38 @@
-import { db } from '../models/db.js';
+import { auditRepository } from '../repositories/auditRepository.js';
+import { platformRepository } from '../repositories/platformRepository.js';
+import { badRequest } from '../utils/errors.js';
+
+function parseDay(value, endOfDay) {
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw badRequest('Dates must be YYYY-MM-DD.');
+  const d = new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`);
+  if (Number.isNaN(d.getTime())) throw badRequest('Invalid date.');
+  return d;
+}
 
 export const auditController = {
   async getAuditLogs(req, res) {
-    try {
-      const { action, entity, from, to, page = 1, limit = 20 } = req.query;
-      const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
-      const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10)));
-
-      const conditions = [];
-      const params = [];
-
-      // If not Super Admin, show only current platform's logs
-      if (!req.user.isSuperAdmin) {
-        if (req.activePlatform && !req.activePlatform.isAll) {
-          conditions.push('(a.platform_id = ? OR a.platform_id IS NULL)');
-          params.push(req.activePlatform.id);
-        }
-      }
-
-      if (action && action !== 'ALL') {
-        conditions.push('a.action = ?');
-        params.push(action);
-      }
-
-      if (entity && entity !== 'ALL') {
-        conditions.push('a.entity = ?');
-        params.push(entity);
-      }
-
-      if (from) {
-        conditions.push('a.created_at >= ?');
-        params.push(from);
-      }
-
-      if (to) {
-        conditions.push('a.created_at <= ?');
-        params.push(to);
-      }
-
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-      const countSql = `SELECT COUNT(*) as total FROM audit_logs a ${whereClause}`;
-      const totalRes = await db.get(countSql, params);
-      const totalRecords = totalRes?.total || 0;
-
-      const dataSql = `
-        SELECT a.*, u.name as user_name, u.email as user_email,
-               p.name as platform_name, p.code as platform_code
-        FROM audit_logs a
-        LEFT JOIN users u ON a.user_id = u.id
-        LEFT JOIN platforms p ON a.platform_id = p.id
-        ${whereClause}
-        ORDER BY a.created_at DESC
-        LIMIT ? OFFSET ?
-      `;
-
-      const logs = await db.all(dataSql, [...params, safeLimit, offset]);
-
-      const formattedLogs = logs.map(l => {
-        let meta = {};
-        try { meta = JSON.parse(l.metadata || '{}'); } catch {}
-        return {
-          id: l.id,
-          action: l.action,
-          entity: l.entity,
-          entityId: l.entity_id,
-          user: l.user_name || 'System / Guest',
-          userEmail: l.user_email,
-          platform: l.platform_name || 'Global / Multi-Tenant',
-          platformCode: l.platform_code,
-          details: meta.details || JSON.stringify(meta),
-          ip: l.ip_address,
-          timestamp: l.created_at
-        };
-      });
-
-      return res.status(200).json({
-        success: true,
-        data: {
-          records: formattedLogs,
-          pagination: {
-            totalRecords,
-            totalPages: Math.ceil(totalRecords / safeLimit),
-            currentPage: parseInt(page, 10),
-            limit: safeLimit
-          }
-        }
-      });
-    } catch (err) {
-      console.error('[AuditController] getAuditLogs error:', err);
-      return res.status(500).json({ success: false, message: 'Failed to retrieve audit logs.' });
+    const { action, entity, from, to, page, limit, platformId } = req.query;
+    let platformIds = null;
+    if (!req.user.isSuperAdmin) {
+      // Platform Admins see only events for platforms they administer (never global/auth events).
+      platformIds = req.user.access.filter(a => a.isCurrentlyActive && a.role_name === 'Platform Admin').map(a => a.platform_id);
+      if (platformId) platformIds = platformIds.filter(id => id === parseInt(platformId, 10));
+    } else if (platformId) {
+      platformIds = [parseInt(platformId, 10)];
     }
+    const result = await auditRepository.search({
+      platformIds,
+      action: action && action !== 'ALL' ? String(action) : null,
+      entity: entity && entity !== 'ALL' ? String(entity) : null,
+      from: parseDay(from, false),
+      to: parseDay(to, true),
+      page,
+      limit
+    });
+    const platforms = await platformRepository.listAll();
+    const names = new Map(platforms.map(p => [p.id, { name: p.name, code: p.code }]));
+    result.records = result.records.map(r => ({ ...r, platform: r.platformId ? (names.get(r.platformId) || { name: `Platform #${r.platformId}` }) : null }));
+    res.json({ success: true, data: { ...result, actions: await auditRepository.distinctActions() } });
   }
 };
-

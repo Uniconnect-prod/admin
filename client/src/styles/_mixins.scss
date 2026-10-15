@@ -1,32 +1,22 @@
 @use './variables' as *;
 
-@mixin mobile {
-  @media (max-width: #{$bp-mobile}) {
+@mixin below($bp) {
+  @media (max-width: #{$bp}) {
     @content;
   }
 }
 
-@mixin tablet {
-  @media (max-width: #{$bp-tablet}) {
-    @content;
-  }
-}
-
-@mixin desktop {
-  @media (max-width: #{$bp-desktop}) {
-    @content;
-  }
-}
-
-@mixin card-surface {
+@mixin card {
   background: $bg-surface;
-  border: 1px solid $border-light;
+  border: 1px solid $border;
   border-radius: $radius-lg;
   box-shadow: $shadow-xs;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
 
-  &:hover {
-    box-shadow: $shadow-sm;
+@mixin focus-visible {
+  &:focus-visible {
+    outline: none;
+    box-shadow: $focus-ring;
   }
 }
 
@@ -36,15 +26,17 @@
   white-space: nowrap;
 }
 
-@mixin flex-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+@mixin label-caps {
+  font-size: $fs-xs;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: $text-muted;
 }
 
-@mixin flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+@mixin skeleton {
+  background: linear-gradient(90deg, $slate-100 0%, $slate-200 50%, $slate-100 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+  border-radius: $radius-sm;
 }
-

@@ -1,101 +1,31 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
 import { config } from './src/config/index.js';
-import apiRoutes from './src/routes/index.js';
-import { connectMongo } from './src/config/mongo.js';
+import { initStore } from './src/store/index.js';
+import { seedReferenceData } from './src/store/seed.js';
+import { createApp } from './src/app.js';
+import { isVaultConfigured } from './src/integrations/secretVault.js';
 
-const app = express();
-
-process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT EXCEPTION]:', err);
+process.on('unhandledRejection', (reason) => {
+  console.error('[Unhandled rejection]', reason);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[UNHANDLED REJECTION]:', reason);
-});
+async function start() {
+  await initStore();
+  await seedReferenceData();
 
-// Security Headers
-app.use(helmet());
+  if (!isVaultConfigured()) {
+    console.warn('[Config] INTEGRATION_SECRET_KEY is not set (or not 32 bytes). Platform API credentials cannot be saved or used until it is configured.');
+  }
+  if (config.outbound.allowPrivateHosts.length) {
+    console.warn(`[Config] Private-network outbound exceptions enabled for: ${config.outbound.allowPrivateHosts.join(', ')}`);
+  }
 
-// CORS Configuration
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow local development and requests with no origin
-    callback(null, true);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-platform-code', 'x-platform-id']
-}));
-
-// Body Parsers & Cookies
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cookieParser());
-
-// Request Logging
-if (config.nodeEnv !== 'test') {
-  app.use(morgan('dev'));
+  const app = createApp();
+  app.listen(config.port, () => {
+    console.log(`[Server] Reporting API listening on http://localhost:${config.port} (store: ${config.reportingStore})`);
+  });
 }
 
-// Rate Limiting
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes.'
-  }
+start().catch((err) => {
+  console.error('[Server] Fatal start-up error:', err);
+  process.exit(1);
 });
-app.use('/api', apiLimiter);
-
-// Register API Routes
-app.use('/api', apiRoutes);
-
-// Root Welcome Endpoint
-app.get('/', (req, res) => {
-  res.json({
-    name: 'Multi-Platform Report Management System API (MongoDB Live Reporting)',
-    version: '2.0.0',
-    status: 'ONLINE',
-    docs: '/api/health'
-  });
-});
-
-// 404 Handler
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found.` });
-});
-
-// Central Error Handler
-app.use((err, req, res, next) => {
-  console.error('[Unhandled Exception]:', err);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal Server Error'
-  });
-});
-
-// Start Server
-async function startServer() {
-  try {
-    // Connect to Dual MongoDB (Read-Only Source + Reporting Admin)
-    await connectMongo();
-
-    app.listen(config.port, () => {
-      console.log(`🚀 [Server] Enterprise Reporting Engine running on http://localhost:${config.port}`);
-    });
-  } catch (err) {
-    console.error('Fatal Server Init Error:', err);
-    console.log('[Server] Retrying startServer in 5 seconds...');
-    setTimeout(startServer, 5000);
-  }
-}
-
-startServer();

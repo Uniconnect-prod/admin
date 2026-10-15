@@ -1,88 +1,118 @@
-// Design Tokens for Multi-Platform Enterprise Reporting SaaS (MTN Enterprise Palette)
+// =============================================================================
+// UNI.SOLUTION design tokens
+// Colours are taken from https://unisolution.in (brand blues + Tailwind slate
+// neutrals + emerald accent). Semantic danger/warning use the same Tailwind family.
+// =============================================================================
 
-// Iconic MTN Brand Palette
-$primary: #ffcc00;              // Iconic MTN Yellow (Pantone 123 C / Hex #FFCC00)
-$primary-hover: #e6b800;        // MTN Yellow Hover
-$primary-dark: #b28900;
-$primary-light: #fffdf0;        // Soft pale yellow background
-$primary-border: #fde68a;       // Soft yellow border
-$primary-text: #000000;         // High-contrast deep black text on yellow
+// Brand
+$brand-700: #014A78;
+$brand-600: #015A92;   // deep brand blue (gradients, hover)
+$brand-500: #0170B9;   // primary brand blue
+$brand-400: #3182B8;   // secondary blue
+$brand-300: #3F9BC7;   // highlight blue ("Solution")
+$brand-100: #DCEEF8;
+$brand-50:  #F1F8FC;   // brand tint background
 
-// Secondary Accent (Charcoal / Solid Black)
-$accent: #0f172a;               // Deep Obsidian Slate
-$accent-dark: #000000;
-$accent-light: #f8fafc;
+// Slate neutrals
+$slate-950: #020617;
+$slate-900: #0F172A;
+$slate-800: #1E293B;
+$slate-700: #334155;
+$slate-600: #475569;
+$slate-500: #64748B;
+$slate-400: #94A3B8;
+$slate-300: #CBD5E1;
+$slate-200: #E2E8F0;
+$slate-100: #F1F5F9;
+$slate-50:  #F8FAFC;
+$white: #FFFFFF;
 
-// Neutrals & Surface Colors
-$bg-app: #f8fafc;
-$bg-surface: #ffffff;
-$bg-surface-secondary: #f1f5f9;
-$bg-surface-tertiary: #e2e8f0;
+// Accent & semantic
+$emerald-600: #059669;
+$emerald-50:  #ECFDF5;
+$emerald-200: #A7F3D0;
+$amber-600: #D97706;
+$amber-50:  #FFFBEB;
+$amber-200: #FDE68A;
+$red-600: #DC2626;
+$red-50:  #FEF2F2;
+$red-200: #FECACA;
 
-// Typography Colors
-$text-primary: #0f172a;         // Deep Navy / Obsidian Black
-$text-secondary: #334155;       // Slate Charcoal
-$text-muted: #64748b;           // Muted Slate
-$text-light: #94a3b8;           // Subtle Caption
+// Roles
+$primary: $brand-500;
+$primary-hover: $brand-600;
+$primary-soft: $brand-50;
+$accent: $brand-300;
+$success: $emerald-600;
+$warning: $amber-600;
+$danger: $red-600;
 
-// Borders
-$border-light: #e2e8f0;
-$border-medium: #cbd5e1;
-$border-dark: #94a3b8;
+$bg-app: $slate-50;
+$bg-surface: $white;
+$bg-subtle: $slate-100;
+$bg-sidebar: $slate-900;
 
-// Status & Semantic Colors
-$color-success: #10b981;
-$color-success-bg: #ecfdf5;
-$color-success-border: #a7f3d0;
-$color-success-text: #065f46;
+$text-strong: $slate-900;
+$text: $slate-700;
+$text-muted: $slate-500;
+$text-faint: $slate-400;
+$text-on-dark: $slate-300;
 
-$color-danger: #ef4444;
-$color-danger-bg: #fef2f2;
-$color-danger-border: #fecaca;
-$color-danger-text: #991b1b;
+$border: $slate-200;
+$border-strong: $slate-300;
+$focus-ring: 0 0 0 3px rgba(1, 112, 185, 0.25);
 
-$color-warning: #f59e0b;
-$color-warning-bg: #fffbeb;
-$color-warning-border: #fde68a;
-$color-warning-text: #92400e;
+$gradient-brand: linear-gradient(135deg, $brand-500 0%, $brand-600 100%);
+$gradient-brand-green: linear-gradient(135deg, $brand-500 0%, $emerald-600 100%);
+$gradient-navy: linear-gradient(90deg, $slate-900 0%, $slate-800 100%);
 
-$color-info: #0284c7;
-$color-info-bg: #f0f9ff;
-$color-info-border: #bae6fd;
-$color-info-text: #0369a1;
+// Typography
+$font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+$font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+$fs-xs: 11px;
+$fs-sm: 12.5px;
+$fs-base: 14px;
+$fs-md: 15px;
+$fs-lg: 17px;
+$fs-xl: 20px;
+$fs-2xl: 24px;
+$fs-3xl: 30px;
 
-$color-purple: #7c3aed;
-$color-purple-bg: #f5f3ff;
-$color-purple-border: #ddd6fe;
-$color-purple-text: #5b21b6;
-
-// Elevation Shadows
-$shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
-$shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
-$shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.06);
-$shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.09), 0 4px 6px -4px rgba(15, 23, 42, 0.05);
-$shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.06);
+// Spacing scale (4px base)
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-5: 20px;
+$space-6: 24px;
+$space-8: 32px;
+$space-10: 40px;
 
 // Radii
 $radius-sm: 6px;
-$radius-md: 10px;
-$radius-lg: 14px;
-$radius-xl: 18px;
+$radius-md: 8px;
+$radius-lg: 12px;
+$radius-xl: 16px;
 $radius-full: 9999px;
 
-// Dimensions & Spacing
-$sidebar-width: 260px;
-$sidebar-collapsed-width: 78px;
-$navbar-height: 68px;
+// Elevation
+$shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+$shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+$shadow-md: 0 6px 16px -4px rgba(15, 23, 42, 0.12), 0 2px 4px rgba(15, 23, 42, 0.05);
+$shadow-lg: 0 18px 40px -12px rgba(15, 23, 42, 0.25);
+
+// Layout
+$sidebar-width: 264px;
+$sidebar-collapsed-width: 76px;
+$topbar-height: 64px;
+$content-max: 1480px;
 
 // Breakpoints
-$bp-mobile: 480px;
-$bp-tablet: 768px;
-$bp-desktop: 1024px;
-$bp-wide: 1280px;
+$bp-sm: 640px;
+$bp-md: 900px;
+$bp-lg: 1200px;
 
-// Transitions
-$transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-$transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-$transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
-
+// Motion
+$ease: cubic-bezier(0.4, 0, 0.2, 1);
+$t-fast: 140ms $ease;
+$t-normal: 220ms $ease;

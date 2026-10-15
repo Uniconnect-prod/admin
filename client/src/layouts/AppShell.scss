@@ -1,0 +1,109 @@
+@use '../styles/variables' as *;
+@use '../styles/mixins' as *;
+
+.skip-link {
+  position: absolute; left: -9999px; top: 8px; z-index: 2000; background: $white; padding: $space-2 $space-3; border-radius: $radius-md; box-shadow: $shadow-md;
+  &:focus { left: 8px; }
+}
+
+.shell {
+  display: flex; min-height: 100vh; background: $bg-app;
+  &__main { flex: 1; min-width: 0; display: flex; flex-direction: column; margin-left: $sidebar-width; transition: margin-left $t-normal;
+    @include below($bp-md) { margin-left: 0; } }
+  &--collapsed &__main { margin-left: $sidebar-collapsed-width; @include below($bp-md) { margin-left: 0; } }
+  &__content { flex: 1; width: 100%; max-width: $content-max; margin: 0 auto; padding: $space-6 $space-8 $space-10;
+    @include below($bp-md) { padding: $space-4; }
+    &:focus { outline: none; } }
+  &__backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); z-index: 199; }
+}
+
+// Sidebar ------------------------------------------------------------------------------
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; z-index: 200; width: $sidebar-width; display: flex; flex-direction: column;
+  background: $bg-sidebar; color: $text-on-dark; border-right: 1px solid rgba(255, 255, 255, 0.04);
+  transition: width $t-normal, transform $t-normal;
+  .shell--collapsed & { width: $sidebar-collapsed-width; }
+  @include below($bp-md) {
+    width: $sidebar-width !important; transform: translateX(-100%);
+    &.is-mobile-open { transform: none; box-shadow: $shadow-lg; }
+  }
+
+  &__brand { display: flex; align-items: center; justify-content: space-between; height: $topbar-height; padding: 0 $space-5; border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    .shell--collapsed & { justify-content: center; padding: 0; } }
+  &__logo { height: 34px; width: auto; }
+  &__icon-tile { width: 40px; height: 40px; border-radius: $radius-md; background: $white; display: grid; place-items: center; overflow: hidden; img { width: 30px; height: 30px; } }
+  &__mobile-close { display: none; color: $slate-400; @include below($bp-md) { display: inline-flex; } }
+  &__product { padding: $space-4 $space-5 $space-2; @include label-caps; color: $brand-300; }
+
+  &__nav { flex: 1; overflow-y: auto; padding: $space-2 $space-3 $space-4; display: flex; flex-direction: column; gap: 2px;
+    .shell--collapsed & { padding: $space-3 $space-2; } }
+  &__footer { padding: $space-3; border-top: 1px solid rgba(255, 255, 255, 0.06); @include below($bp-md) { display: none; } }
+}
+
+.nav-link {
+  position: relative; display: flex; align-items: center; gap: $space-3; width: 100%; min-height: 40px; padding: $space-2 $space-3;
+  border-radius: $radius-md; color: $slate-300; font-size: $fs-base; font-weight: 500; text-align: left; transition: background $t-fast, color $t-fast;
+  &:hover { background: rgba(255, 255, 255, 0.06); color: $white; }
+  &.is-active { background: rgba(1, 112, 185, 0.22); color: $white; font-weight: 600;
+    &::before { content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: $brand-300; } }
+  &__icon { flex-shrink: 0; color: $slate-400; .is-active > &, &:hover { color: $brand-300; } }
+  &.is-active &__icon { color: $brand-300; }
+  &__label { flex: 1; @include truncate; }
+  &__chevron { color: $slate-500; transition: transform $t-fast; }
+  &--child { min-height: 34px; padding-left: 42px; font-size: $fs-sm; color: $slate-400;
+    &.is-active::before { left: 22px; top: 9px; bottom: 9px; width: 2px; } }
+  .shell--collapsed & { justify-content: center; padding: $space-2; }
+  @include focus-visible;
+}
+.nav-group {
+  &.is-open > .nav-link .nav-link__chevron { transform: rotate(180deg); }
+  &.has-active > .nav-link { color: $white; .nav-link__icon { color: $brand-300; } }
+  &__children { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 6px; }
+}
+
+// Topbar ----------------------------------------------------------------------------------
+.topbar {
+  position: sticky; top: 0; z-index: 100; height: $topbar-height; display: flex; align-items: center; gap: $space-4;
+  padding: 0 $space-8; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid $border;
+  @include below($bp-md) { padding: 0 $space-4; gap: $space-2; }
+  &__menu { display: none; @include below($bp-md) { display: inline-flex; } }
+  &__right { margin-left: auto; display: flex; align-items: center; gap: $space-2; }
+  &__search { width: 220px; @include below($bp-lg) { display: none; } }
+}
+
+.breadcrumbs {
+  display: flex; align-items: center; gap: 6px; font-size: $fs-sm; color: $text-muted; min-width: 0;
+  span { @include truncate; }
+  .is-current { color: $text-strong; font-weight: 600; }
+  svg { color: $text-faint; flex-shrink: 0; }
+  @include below($bp-md) { display: none; }
+}
+
+.context-btn {
+  display: inline-flex; align-items: center; gap: $space-2; height: 38px; padding: 0 $space-3; max-width: 240px;
+  border: 1px solid $border-strong; border-radius: $radius-md; background: $white; color: $text-strong; font-size: $fs-sm; font-weight: 600;
+  transition: border-color $t-fast, box-shadow $t-fast;
+  &:hover:not(:disabled) { border-color: $brand-400; }
+  &:disabled { opacity: 0.6; cursor: not-allowed; background: $slate-50; }
+  &.is-empty { border-color: $brand-300; background: $brand-50; color: $brand-600; }
+  &__text { @include truncate; }
+  svg { color: $text-muted; flex-shrink: 0; }
+  @include focus-visible;
+  @include below($bp-sm) { max-width: 120px; padding: 0 $space-2; }
+}
+
+.user-btn {
+  display: inline-flex; align-items: center; gap: $space-2; padding: 4px $space-2 4px 4px; border-radius: $radius-full; transition: background $t-fast;
+  &:hover { background: $slate-100; }
+  &__avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: $gradient-brand; color: $white; font-weight: 700; }
+  &__text { display: flex; flex-direction: column; text-align: left; line-height: 1.2;
+    strong { font-size: $fs-sm; color: $text-strong; } span { font-size: $fs-xs; color: $text-muted; }
+    @include below($bp-lg) { display: none; } }
+  @include focus-visible;
+}
+
+.expiry-banner {
+  display: flex; align-items: center; gap: $space-2; padding: $space-2 $space-8; background: $amber-50; color: #92400E; border-bottom: 1px solid $amber-200; font-size: $fs-sm;
+  button { margin-left: auto; color: inherit; display: inline-flex; }
+  @include below($bp-md) { padding: $space-2 $space-4; }
+}

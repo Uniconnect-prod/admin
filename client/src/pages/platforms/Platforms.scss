@@ -1,0 +1,95 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+// Stepper -------------------------------------------------------------------------------
+.stepper {
+  list-style: none; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: $space-2;
+  @include below($bp-lg) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @include below($bp-sm) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  &__item button {
+    width: 100%; display: flex; align-items: center; gap: $space-2; padding: $space-3; border-radius: $radius-md;
+    background: $white; border: 1px solid $border; text-align: left; transition: all $t-fast;
+    &:hover:not(:disabled) { border-color: $brand-300; }
+    &:disabled { opacity: 0.55; cursor: not-allowed; }
+    @include focus-visible;
+  }
+  &__num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; font-size: $fs-xs; font-weight: 800; background: $slate-100; color: $slate-500; }
+  &__label { font-size: $fs-sm; font-weight: 600; color: $text; @include truncate; }
+  &__item.is-current button { border-color: $primary; box-shadow: $focus-ring; }
+  &__item.is-current &__num { background: $primary; color: $white; }
+  &__item.is-done &__num { background: $emerald-50; color: $emerald-600; }
+}
+
+.wizard__footer {
+  position: sticky; bottom: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center; gap: $space-3; flex-wrap: wrap;
+  padding: $space-3 $space-4; margin: 0 (-$space-4); background: rgba(248, 250, 252, 0.95); backdrop-filter: blur(6px); border-top: 1px solid $border;
+}
+
+.preset-grid { display: grid; gap: $space-3; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.preset-card {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; padding: $space-4; border-radius: $radius-md; border: 1px solid $border; background: $white;
+  transition: all $t-fast; font-size: $fs-sm; color: $text-muted;
+  strong { color: $text-strong; font-size: $fs-base; }
+  &:hover { border-color: $brand-300; }
+  &.is-selected { border-color: $primary; background: $brand-50; box-shadow: $focus-ring; }
+  @include focus-visible;
+}
+
+.module-grid { display: grid; gap: $space-2; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.module-option {
+  display: flex; align-items: center; gap: $space-2; padding: $space-3; border: 1px solid $border; border-radius: $radius-md; cursor: pointer; font-weight: 500; transition: all $t-fast;
+  input { accent-color: $primary; width: 16px; height: 16px; }
+  &.is-on { border-color: $brand-300; background: $brand-50; color: $brand-700; }
+}
+
+.color-input { width: 42px; height: 38px; padding: 2px; border: 1px solid $border-strong; border-radius: $radius-md; background: $white; cursor: pointer; flex-shrink: 0; }
+
+.secret-box {
+  margin-top: $space-5; padding: $space-4; border-radius: $radius-md; background: $slate-50; border: 1px dashed $border-strong;
+  &__head { display: flex; align-items: center; gap: $space-2; margin-bottom: $space-3; flex-wrap: wrap; font-size: $fs-sm; svg { color: $brand-500; } }
+}
+
+.mapping-table {
+  td { vertical-align: top; }
+  .input, .select { min-width: 120px; }
+  .input.has-error { border-color: $danger; }
+}
+
+.kv-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: $space-2; align-items: center; .input.has-error { border-color: $danger; } }
+
+.inspect-summary {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: $space-3; margin-bottom: $space-4;
+  @include below($bp-md) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  > div { display: flex; flex-direction: column; gap: 4px; padding: $space-3; border-radius: $radius-md; background: $slate-50; border: 1px solid $border; }
+  strong { color: $text-strong; font-size: $fs-md; word-break: break-all; }
+}
+.code-inline { font-family: $font-mono; font-size: 12.5px; padding: $space-2 $space-3; background: $slate-900; color: $slate-200; border-radius: $radius-md; word-break: break-all; strong { color: $brand-300; margin-right: 6px; } }
+
+.structure-list { display: flex; flex-direction: column; gap: $space-3; max-height: 520px; overflow: auto; }
+.structure-item { padding: $space-3; border: 1px solid $border; border-radius: $radius-md;
+  &__fields { display: flex; flex-wrap: wrap; gap: 6px; margin-top: $space-2; .chip { height: 24px; font-size: $fs-xs; } } }
+
+.check-list {
+  list-style: none; display: flex; flex-direction: column; gap: $space-2;
+  &__item { display: flex; gap: $space-3; padding: $space-3; border-radius: $radius-md; border: 1px solid $border; background: $white;
+    > svg { flex-shrink: 0; margin-top: 2px; }
+    p { font-size: $fs-sm; color: $text-muted; margin-top: 2px; }
+    &.is-passed > svg { color: $success; }
+    &.is-failed { border-color: $red-200; background: $red-50; > svg { color: $danger; } }
+    &.is-warning { border-color: $amber-200; background: $amber-50; > svg { color: $warning; } }
+    &.is-skipped > svg { color: $text-faint; } }
+  &__detail { margin: 6px 0 0 18px; font-size: $fs-xs; color: $text; display: flex; flex-direction: column; gap: 2px; }
+  &__code { display: block; margin-top: 6px; font-size: $fs-xs; color: $text; word-break: break-all; }
+}
+
+// Platform list -------------------------------------------------------------------------
+.platform-grid { display: grid; gap: $space-4; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); @include below($bp-sm) { grid-template-columns: 1fr; } }
+.platform-card {
+  @include card; display: flex; flex-direction: column; gap: $space-3; padding: $space-5;
+  &__head { display: flex; gap: $space-3; align-items: flex-start; }
+  &__title { font-size: $fs-md; font-weight: 700; color: $text-strong; }
+  &__code { font-family: $font-mono; font-size: $fs-xs; color: $text-muted; }
+  &__meta { display: grid; grid-template-columns: 1fr 1fr; gap: $space-2 $space-4; font-size: $fs-sm;
+    dt { color: $text-faint; font-size: $fs-xs; } dd { color: $text; font-weight: 500; word-break: break-word; } }
+  &__actions { display: flex; gap: $space-2; flex-wrap: wrap; margin-top: auto; padding-top: $space-3; border-top: 1px solid $border; }
+}
