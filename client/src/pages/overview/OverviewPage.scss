@@ -1,3 +1,6 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
 .gh-dashboard {
   width: 100%;
   padding-bottom: 32px;
@@ -18,25 +21,40 @@
   }
 
   .gh-kpi-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    background: $white;
+    border: 1px solid $border;
+    border-radius: $radius-lg;
     padding: 20px 22px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    box-shadow: $shadow-xs;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
+    overflow: hidden;
+    transition: transform $t-fast, box-shadow $t-fast, border-color $t-fast;
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: $primary;
+      border-radius: 4px 0 0 4px;
+    }
 
     &:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      box-shadow: $shadow-md;
+      border-color: $brand-300;
+      transform: translateY(-1px);
     }
   }
 
   .gh-kpi-title {
-    font-size: 15px;
+    font-size: 14.5px;
     font-weight: 700;
-    color: #1d4ed8; // vibrant bold blue
+    color: $brand-600; // Deep site brand blue
     margin: 0;
     letter-spacing: -0.01em;
   }
@@ -46,44 +64,47 @@
     margin-bottom: 8px;
     display: flex;
     align-items: baseline;
+    gap: 2px;
   }
 
   .gh-kpi-value {
     font-size: 38px;
     font-weight: 800;
-    color: #ea580c; // bold vibrant orange
+    color: $primary; // Primary site brand blue (#0170B9)
     line-height: 1;
     letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
   }
 
   .gh-currency-ghc {
-    color: #ea580c;
-    font-size: 38px;
+    color: $primary; // Unified site brand blue (#0170B9)
+    font-size: 36px;
     font-weight: 800;
     letter-spacing: -0.03em;
   }
 
   .gh-currency-val {
-    color: #0284c7; // sky blue
+    color: $primary; // Unified site brand blue (#0170B9)
     font-size: 38px;
     font-weight: 800;
     letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
   }
 
   .gh-kpi-footer {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     font-size: 13px;
     margin-top: 4px;
 
     .gh-tag-up {
-      color: #16a34a; // vibrant green
+      color: $emerald-600; // Site semantic green
       font-weight: 700;
     }
 
     .gh-tag-vs {
-      color: #64748b; // muted slate
+      color: $text-muted; // Muted slate
       font-weight: 400;
     }
   }
@@ -137,21 +158,23 @@
     align-items: center;
     justify-content: center;
     gap: 7px;
-    background-color: #2563eb;
-    color: #ffffff;
+    background-color: $primary;
+    color: $white;
     border: none;
-    border-radius: 6px;
+    border-radius: $radius-md;
     padding: 8px 16px;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     height: 38px;
     cursor: pointer;
     line-height: 1.2;
     text-align: center;
-    transition: background-color 0.15s ease;
+    box-shadow: 0 1px 2px rgba(1, 112, 185, 0.25);
+    transition: background-color $t-fast, box-shadow $t-fast;
 
     &:hover:not(:disabled) {
-      background-color: #1d4ed8;
+      background-color: $primary-hover;
+      box-shadow: 0 2px 4px rgba(1, 112, 185, 0.35);
     }
 
     &:disabled {
@@ -164,19 +187,20 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background-color: #f1f5f9;
-    color: #1e293b;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
+    background-color: $slate-100;
+    color: $slate-800;
+    border: 1px solid $border;
+    border-radius: $radius-md;
     padding: 8px 14px;
     font-size: 13px;
     font-weight: 600;
     height: 38px;
     cursor: pointer;
-    transition: background-color 0.15s ease;
+    transition: background-color $t-fast, border-color $t-fast;
 
     &:hover:not(:disabled) {
-      background-color: #e2e8f0;
+      background-color: $slate-200;
+      border-color: $slate-300;
     }
   }
 
@@ -186,28 +210,28 @@
     gap: 4px;
 
     label {
-      font-size: 10px;
-      font-weight: 800;
-      color: #334155;
+      font-size: 11px;
+      font-weight: 700;
+      color: $slate-600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     input, select {
       height: 38px;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
+      border: 1px solid $border-strong;
+      border-radius: $radius-md;
       padding: 0 10px;
       font-size: 13px;
-      color: #1e293b;
-      background-color: #ffffff;
+      color: $text-strong;
+      background-color: $white;
       outline: none;
       min-width: 130px;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      transition: border-color $t-fast, box-shadow $t-fast;
 
       &:focus {
-        border-color: #2563eb;
-        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+        border-color: $primary;
+        box-shadow: $focus-ring;
       }
     }
 
@@ -218,23 +242,25 @@
   }
 
   .gh-btn-apply {
-    background-color: #0284c7; // deep teal / cyan
-    color: #ffffff;
+    background-color: $primary;
+    color: $white;
     border: none;
-    border-radius: 6px;
+    border-radius: $radius-md;
     padding: 8px 18px;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     height: 38px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     line-height: 1.2;
-    transition: background-color 0.15s ease;
+    box-shadow: 0 1px 2px rgba(1, 112, 185, 0.25);
+    transition: background-color $t-fast, box-shadow $t-fast;
 
     &:hover:not(:disabled) {
-      background-color: #0369a1;
+      background-color: $primary-hover;
+      box-shadow: 0 2px 4px rgba(1, 112, 185, 0.35);
     }
   }
 
@@ -312,9 +338,9 @@
       }
 
       &.status-renewal {
-        background-color: #eff6ff;
-        color: #2563eb;
-        border: 1px solid #bfdbfe;
+        background-color: $brand-50;
+        color: $brand-600;
+        border: 1px solid $brand-100;
       }
 
       &.status-neutral {
@@ -374,15 +400,15 @@
         transition: all 0.15s ease;
 
         &:hover:not(:disabled) {
-          border-color: #2563eb;
-          color: #2563eb;
-          background-color: #f8fafc;
+          border-color: $primary;
+          color: $primary;
+          background-color: $brand-50;
         }
 
         &.is-active {
-          background-color: #2563eb;
+          background-color: $primary;
           color: #ffffff;
-          border-color: #2563eb;
+          border-color: $primary;
         }
 
         &:disabled {
