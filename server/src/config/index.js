@@ -19,6 +19,21 @@ function list(value) {
     .filter(Boolean);
 }
 
+function buildDatabaseUrl() {
+  const explicit = process.env.DATABASE_URL || process.env.POSTGRES_URI || process.env.PG_URI || '';
+  if (explicit.trim()) return explicit.trim();
+
+  const host = process.env.DB_HOST || process.env.PGHOST || '';
+  const database = process.env.DB_DATABASE || process.env.PGDATABASE || '';
+  if (!host || !database) return '';
+
+  const user = encodeURIComponent(process.env.DB_USERNAME || process.env.PGUSER || 'postgres');
+  const password = encodeURIComponent(process.env.DB_PASSWORD || process.env.PGPASSWORD || '');
+  const port = process.env.DB_PORT || process.env.PGPORT || '5432';
+  const auth = password ? `${user}:${password}` : user;
+  return `postgresql://${auth}@${host}:${port}/${database}`;
+}
+
 function requiredSecret(name, devFallbackLabel) {
   const value = process.env[name];
   if (value && value.length >= 16) return value;
@@ -34,7 +49,7 @@ function requiredSecret(name, devFallbackLabel) {
 
 export const config = {
   // Kept on 5002 by default to avoid clashing with other local services; override with REPORTING_API_PORT.
-  port: parseInt(process.env.REPORTING_API_PORT || '5002', 10),
+  port: parseInt(process.env.REPORTING_API_PORT || process.env.PORT || '5002', 10),
   nodeEnv,
   isProduction,
   isTest,
@@ -48,7 +63,7 @@ export const config = {
 
   // Reporting administration database (users, roles, platform configuration, audit logs).
   reportingStore: (process.env.REPORTING_STORE || 'postgres').toLowerCase(),
-  databaseUrl: process.env.DATABASE_URL || process.env.POSTGRES_URI || process.env.PG_URI || '',
+  databaseUrl: buildDatabaseUrl(),
 
 
   // Optional first-run Super Admin (only used when the users collection is empty).
